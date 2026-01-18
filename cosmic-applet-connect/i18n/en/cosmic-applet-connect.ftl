@@ -100,10 +100,24 @@ settings-sms-show-content-desc = Display message preview in notification
 settings-sms-show-sender = Show sender name
 settings-sms-show-sender-desc = Display who sent the message
 
-# Notification text
+# Call Notifications settings
+settings-call-notifications = Call notifications
+settings-call-notifications-desc = Show desktop notification for incoming and missed calls
+settings-call-show-number = Show phone number
+settings-call-show-number-desc = Display caller's phone number in notification
+settings-call-show-name = Show caller name
+settings-call-show-name-desc = Display contact name if available
+
+# SMS Notification text
 sms-notification-title = New SMS
 sms-notification-title-from = New SMS from { $sender }
 sms-notification-body-hidden = Message received
+
+# Call Notification text
+incoming-call = Incoming Call
+incoming-call-from = Incoming call from { $name }
+missed-call = Missed Call
+missed-call-from = Missed call from { $name }
 
 # SMS/Messages
 messages-title = Messages - { $device }

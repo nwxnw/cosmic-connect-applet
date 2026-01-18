@@ -188,6 +188,15 @@ pub enum Message {
     // SMS Notifications
     /// New SMS received via D-Bus signal (device_id, message)
     SmsNotificationReceived(String, SmsMessage),
+
+    // Call Notifications
+    /// Incoming or missed call received via D-Bus signal
+    CallNotification {
+        device_name: String,
+        event: String,
+        phone_number: String,
+        contact_name: String,
+    },
 }
 
 /// Keys for boolean settings that can be toggled.
@@ -199,6 +208,9 @@ pub enum SettingKey {
     SmsNotifications,
     SmsShowContent,
     SmsShowSender,
+    CallNotifications,
+    CallShowNumber,
+    CallShowName,
 }
 
 /// Basic device information for display.
@@ -777,6 +789,17 @@ impl Application for ConnectApplet {
                         self.config.sms_notification_show_sender =
                             !self.config.sms_notification_show_sender;
                     }
+                    SettingKey::CallNotifications => {
+                        self.config.call_notifications = !self.config.call_notifications;
+                    }
+                    SettingKey::CallShowNumber => {
+                        self.config.call_notification_show_number =
+                            !self.config.call_notification_show_number;
+                    }
+                    SettingKey::CallShowName => {
+                        self.config.call_notification_show_name =
+                            !self.config.call_notification_show_name;
+                    }
                 }
                 tracing::debug!("Settings updated: {:?}", self.config);
                 // Save config to disk
@@ -1314,6 +1337,72 @@ impl Application for ConnectApplet {
                     |_| cosmic::Action::App(Message::RefreshDevices),
                 );
             }
+
+            // Call Notifications
+            Message::CallNotification {
+                device_name,
+                event,
+                phone_number,
+                contact_name,
+            } => {
+                // Build notification based on event type and privacy settings
+                let (summary, icon, urgency) = match event.as_str() {
+                    "callReceived" => {
+                        let text = if self.config.call_notification_show_name
+                            && !contact_name.is_empty()
+                            && contact_name != phone_number
+                        {
+                            fl!("incoming-call-from", name = contact_name.clone())
+                        } else if self.config.call_notification_show_number {
+                            fl!("incoming-call-from", name = phone_number.clone())
+                        } else {
+                            fl!("incoming-call")
+                        };
+                        (text, "call-start-symbolic", notify_rust::Urgency::Critical)
+                    }
+                    "missedCall" => {
+                        let text = if self.config.call_notification_show_name
+                            && !contact_name.is_empty()
+                            && contact_name != phone_number
+                        {
+                            fl!("missed-call-from", name = contact_name.clone())
+                        } else if self.config.call_notification_show_number {
+                            fl!("missed-call-from", name = phone_number.clone())
+                        } else {
+                            fl!("missed-call")
+                        };
+                        (text, "call-missed-symbolic", notify_rust::Urgency::Normal)
+                    }
+                    _ => {
+                        tracing::debug!("Unknown call event type: {}", event);
+                        return cosmic::app::Task::none();
+                    }
+                };
+
+                tracing::info!(
+                    "Call notification: {} - {} from {}",
+                    event,
+                    contact_name,
+                    device_name
+                );
+
+                // Show notification
+                return cosmic::app::Task::perform(
+                    async move {
+                        if let Err(e) = notify_rust::Notification::new()
+                            .summary(&summary)
+                            .body(&device_name)
+                            .icon(icon)
+                            .appname("COSMIC Connect")
+                            .urgency(urgency)
+                            .show()
+                        {
+                            tracing::warn!("Failed to show call notification: {}", e);
+                        }
+                    },
+                    |_| cosmic::Action::App(Message::RefreshDevices),
+                );
+            }
         }
 
         cosmic::app::Task::none()
@@ -1452,6 +1541,13 @@ impl Application for ConnectApplet {
             subscriptions.push(Subscription::run(sms_notification_subscription));
         }
 
+        // Add call notification subscription when enabled and devices are connected
+        if self.config.call_notifications
+            && self.devices.iter().any(|d| d.is_reachable && d.is_paired)
+        {
+            subscriptions.push(Subscription::run(call_notification_subscription));
+        }
+
         Subscription::batch(subscriptions)
     }
 
@@ -1572,6 +1668,33 @@ impl ConnectApplet {
                 ));
         }
 
+        // Call notifications section
+        settings_col = settings_col
+            .push(widget::divider::horizontal::default())
+            .push(self.view_setting_toggle(
+                fl!("settings-call-notifications"),
+                fl!("settings-call-notifications-desc"),
+                self.config.call_notifications,
+                SettingKey::CallNotifications,
+            ));
+
+        // Show sub-settings only when call notifications are enabled
+        if self.config.call_notifications {
+            settings_col = settings_col
+                .push(self.view_setting_toggle(
+                    fl!("settings-call-show-name"),
+                    fl!("settings-call-show-name-desc"),
+                    self.config.call_notification_show_name,
+                    SettingKey::CallShowName,
+                ))
+                .push(self.view_setting_toggle(
+                    fl!("settings-call-show-number"),
+                    fl!("settings-call-show-number-desc"),
+                    self.config.call_notification_show_number,
+                    SettingKey::CallShowNumber,
+                ));
+        }
+
         widget::container(settings_col).width(Length::Fill).into()
     }
 
@@ -1586,13 +1709,17 @@ impl ConnectApplet {
         let toggle =
             widget::toggler(enabled).on_toggle(move |_| Message::ToggleSetting(key.clone()));
 
-        let setting_row = row![
-            column![text(title).size(14), text(description).size(11),].spacing(2),
-            widget::horizontal_space(),
-            toggle,
+        // Use width constraint on text column to ensure toggle alignment
+        let text_col = column![
+            text(title).size(14),
+            text(description).size(11).wrapping(text::Wrapping::Word),
         ]
-        .spacing(12)
-        .align_y(Alignment::Center);
+        .spacing(2)
+        .width(Length::Fill);
+
+        let setting_row = row![text_col, toggle,]
+            .spacing(12)
+            .align_y(Alignment::Center);
 
         widget::container(setting_row)
             .padding(12)
@@ -3011,6 +3138,166 @@ fn sms_notification_subscription() -> impl futures_util::Stream<Item = Message> 
                         None => {
                             tracing::warn!("D-Bus SMS stream ended, reconnecting...");
                             return Some((Message::RefreshDevices, SmsSubscriptionState::Init));
+                        }
+                    }
+                }
+            }
+        }
+    })
+}
+
+/// State for call notification subscription.
+#[allow(clippy::large_enum_variant)]
+enum CallSubscriptionState {
+    Init,
+    Listening {
+        conn: Connection,
+        stream: zbus::MessageStream,
+    },
+}
+
+/// Create a stream that listens for incoming/missed calls via D-Bus signals.
+fn call_notification_subscription() -> impl futures_util::Stream<Item = Message> {
+    futures_util::stream::unfold(CallSubscriptionState::Init, |state| async move {
+        match state {
+            CallSubscriptionState::Init => {
+                // Connect to D-Bus
+                let conn = match Connection::session().await {
+                    Ok(c) => c,
+                    Err(e) => {
+                        tracing::error!("Failed to connect to D-Bus for call signals: {}", e);
+                        tokio::time::sleep(std::time::Duration::from_secs(5)).await;
+                        return Some((
+                            Message::Error("D-Bus connection failed for calls".to_string()),
+                            CallSubscriptionState::Init,
+                        ));
+                    }
+                };
+
+                // Create DBus proxy for adding match rules
+                let dbus_proxy = match zbus::fdo::DBusProxy::new(&conn).await {
+                    Ok(p) => p,
+                    Err(e) => {
+                        tracing::error!("Failed to create DBus proxy for calls: {}", e);
+                        return Some((
+                            Message::Error("D-Bus proxy failed for calls".to_string()),
+                            CallSubscriptionState::Init,
+                        ));
+                    }
+                };
+
+                // Subscribe to telephony callReceived signals
+                let rule_result = zbus::MatchRule::builder()
+                    .msg_type(zbus::message::Type::Signal)
+                    .interface("org.kde.kdeconnect.device.telephony")
+                    .and_then(|b| b.member("callReceived"))
+                    .map(|b| b.build());
+
+                if let Ok(rule) = rule_result {
+                    if let Err(e) = dbus_proxy.add_match_rule(rule).await {
+                        tracing::warn!("Failed to add call match rule: {}", e);
+                    } else {
+                        tracing::debug!("Added match rule for telephony callReceived signals");
+                    }
+                }
+
+                tracing::debug!("Call notification subscription started");
+
+                // Create message stream
+                let stream = zbus::MessageStream::from(&conn);
+
+                Some((
+                    Message::RefreshDevices,
+                    CallSubscriptionState::Listening { conn, stream },
+                ))
+            }
+            CallSubscriptionState::Listening { conn, mut stream } => {
+                // Wait for callReceived signals
+                loop {
+                    match stream.next().await {
+                        Some(Ok(msg)) => {
+                            if msg.header().message_type() == zbus::message::Type::Signal {
+                                if let (Some(interface), Some(member)) =
+                                    (msg.header().interface(), msg.header().member())
+                                {
+                                    let iface_str = interface.as_str();
+                                    let member_str = member.as_str();
+
+                                    // Only process callReceived signals from telephony
+                                    if iface_str == "org.kde.kdeconnect.device.telephony"
+                                        && member_str == "callReceived"
+                                    {
+                                        // Extract device ID from the path
+                                        // Path format: /modules/kdeconnect/devices/{device_id}/telephony
+                                        if let Some(path) = msg.header().path() {
+                                            let path_str = path.as_str();
+                                            if let Some(rest) = path_str
+                                                .strip_prefix("/modules/kdeconnect/devices/")
+                                            {
+                                                let device_id =
+                                                    rest.split('/').next().unwrap_or(rest);
+
+                                                // Parse the signal arguments: (event, phone_number, contact_name)
+                                                let body = msg.body();
+                                                if let Ok((event, phone_number, contact_name)) =
+                                                    body.deserialize::<(String, String, String)>()
+                                                {
+                                                    tracing::debug!(
+                                                        "Call signal: {} from {} ({}) on device {}",
+                                                        event,
+                                                        contact_name,
+                                                        phone_number,
+                                                        device_id
+                                                    );
+
+                                                    // Get device name from D-Bus
+                                                    let device_name =
+                                                        match DeviceProxy::builder(&conn)
+                                                            .path(format!(
+                                                                "{}/devices/{}",
+                                                                kdeconnect_dbus::BASE_PATH,
+                                                                device_id
+                                                            ))
+                                                            .ok()
+                                                            .map(|b| b.build())
+                                                        {
+                                                            Some(fut) => match fut.await {
+                                                                Ok(proxy) => proxy
+                                                                    .name()
+                                                                    .await
+                                                                    .unwrap_or_else(|_| {
+                                                                        device_id.to_string()
+                                                                    }),
+                                                                Err(_) => device_id.to_string(),
+                                                            },
+                                                            None => device_id.to_string(),
+                                                        };
+
+                                                    return Some((
+                                                        Message::CallNotification {
+                                                            device_name,
+                                                            event,
+                                                            phone_number,
+                                                            contact_name,
+                                                        },
+                                                        CallSubscriptionState::Listening {
+                                                            conn,
+                                                            stream,
+                                                        },
+                                                    ));
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                        Some(Err(e)) => {
+                            tracing::warn!("D-Bus call stream error: {}", e);
+                        }
+                        None => {
+                            tracing::warn!("D-Bus call stream ended, reconnecting...");
+                            return Some((Message::RefreshDevices, CallSubscriptionState::Init));
                         }
                     }
                 }

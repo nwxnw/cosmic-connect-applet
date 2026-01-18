@@ -8,7 +8,7 @@ pub const APP_ID: &str = "com.github.cosmic-connect-applet";
 
 /// Applet configuration stored in COSMIC's config system.
 #[derive(Debug, Clone, Serialize, Deserialize, CosmicConfigEntry, PartialEq, Eq)]
-#[version = 2]
+#[version = 3]
 pub struct Config {
     /// Show battery percentage in device list
     pub show_battery_percentage: bool,
@@ -24,6 +24,12 @@ pub struct Config {
     pub sms_notification_show_content: bool,
     /// Show sender name in SMS notifications (privacy)
     pub sms_notification_show_sender: bool,
+    /// Enable desktop notifications for incoming/missed calls
+    pub call_notifications: bool,
+    /// Show phone number in call notifications (privacy)
+    pub call_notification_show_number: bool,
+    /// Show contact name in call notifications (privacy)
+    pub call_notification_show_name: bool,
 }
 
 impl Default for Config {
@@ -36,6 +42,9 @@ impl Default for Config {
             sms_notifications: true,
             sms_notification_show_content: true,
             sms_notification_show_sender: true,
+            call_notifications: true,
+            call_notification_show_number: true,
+            call_notification_show_name: true,
         }
     }
 }

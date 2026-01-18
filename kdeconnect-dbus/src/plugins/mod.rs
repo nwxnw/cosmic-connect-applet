@@ -12,6 +12,7 @@ pub mod notifications;
 pub mod ping;
 pub mod share;
 pub mod sms;
+pub mod telephony;
 
 pub use battery::BatteryProxy;
 pub use clipboard::ClipboardProxy;
@@ -25,3 +26,4 @@ pub use sms::{
     parse_sms_message, ConversationSummary, ConversationsProxy, MessageType, SmsMessage, SmsProxy,
     MAX_CONVERSATIONS,
 };
+pub use telephony::TelephonyProxy;
