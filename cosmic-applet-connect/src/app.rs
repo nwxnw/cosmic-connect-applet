@@ -29,8 +29,8 @@ use kdeconnect_dbus::{
     contacts::{Contact, ContactLookup},
     plugins::{
         is_address_valid, parse_conversations, parse_messages, BatteryProxy, ClipboardProxy,
-        ConversationSummary, ConversationsProxy, MessageType, MprisRemoteProxy, NotificationInfo,
-        NotificationProxy, NotificationsProxy, PingProxy, ShareProxy, SmsMessage,
+        ConversationSummary, ConversationsProxy, FindMyPhoneProxy, MessageType, MprisRemoteProxy,
+        NotificationInfo, NotificationProxy, NotificationsProxy, PingProxy, ShareProxy, SmsMessage,
     },
     DaemonProxy, DeviceProxy,
 };
@@ -74,6 +74,12 @@ pub enum Message {
     SendPing(String),
     /// Ping operation completed
     PingComplete(Result<(), String>),
+
+    // Find My Phone actions
+    /// Trigger the phone to ring
+    FindMyPhone(String),
+    /// Find My Phone operation completed
+    FindMyPhoneComplete(Result<(), String>),
 
     // Share actions
     /// Initiate file sharing (opens file picker)
@@ -531,6 +537,27 @@ impl Application for ConnectApplet {
                 Err(e) => {
                     tracing::error!("Ping failed: {}", e);
                     self.status_message = Some(format!("Ping failed: {}", e));
+                }
+            },
+
+            // Find My Phone
+            Message::FindMyPhone(device_id) => {
+                if let Some(conn) = &self.dbus_connection {
+                    self.status_message = Some(fl!("ringing-phone"));
+                    return cosmic::app::Task::perform(
+                        find_my_phone_async(conn.clone(), device_id),
+                        |result| cosmic::Action::App(Message::FindMyPhoneComplete(result)),
+                    );
+                }
+            }
+            Message::FindMyPhoneComplete(result) => match result {
+                Ok(()) => {
+                    tracing::info!("Find my phone triggered successfully");
+                    self.status_message = Some(fl!("phone-ringing"));
+                }
+                Err(e) => {
+                    tracing::error!("Find my phone failed: {}", e);
+                    self.status_message = Some(format!("{}: {}", fl!("find-phone-failed"), e));
                 }
             },
 
@@ -2405,6 +2432,28 @@ async fn send_ping_async(conn: Arc<Mutex<Connection>>, device_id: String) -> Res
         .map_err(|e| e.to_string())?;
 
     ping.send_ping().await.map_err(|e| e.to_string())
+}
+
+/// Trigger a device to ring so the user can find it.
+async fn find_my_phone_async(
+    conn: Arc<Mutex<Connection>>,
+    device_id: String,
+) -> Result<(), String> {
+    let conn = conn.lock().await;
+    let path = format!(
+        "{}/devices/{}/findmyphone",
+        kdeconnect_dbus::BASE_PATH,
+        device_id
+    );
+
+    let findmyphone = FindMyPhoneProxy::builder(&conn)
+        .path(path.as_str())
+        .map_err(|e| e.to_string())?
+        .build()
+        .await
+        .map_err(|e| e.to_string())?;
+
+    findmyphone.ring().await.map_err(|e| e.to_string())
 }
 
 /// Share a file to a device.

@@ -66,6 +66,10 @@ notifications = Notifications
 device-must-be-connected = Device must be connected to use actions
 send-to = Send to { $device }
 send-to-title = Send to { $device }
+find-phone = Find Phone
+ringing-phone = Ringing phone...
+phone-ringing = Phone is ringing!
+find-phone-failed = Failed to ring phone
 
 # Pairing
 pair = Pair

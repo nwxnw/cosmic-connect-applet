@@ -6,6 +6,7 @@
 
 pub mod battery;
 pub mod clipboard;
+pub mod findmyphone;
 pub mod mprisremote;
 pub mod notifications;
 pub mod ping;
@@ -14,6 +15,7 @@ pub mod sms;
 
 pub use battery::BatteryProxy;
 pub use clipboard::ClipboardProxy;
+pub use findmyphone::FindMyPhoneProxy;
 pub use mprisremote::MprisRemoteProxy;
 pub use notifications::{NotificationInfo, NotificationProxy, NotificationsProxy};
 pub use ping::PingProxy;

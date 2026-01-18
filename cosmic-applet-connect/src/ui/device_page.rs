@@ -69,6 +69,7 @@ pub fn view<'a>(device: &'a DeviceInfo, status_message: Option<&'a str>) -> Elem
         let device_id_for_sendto = device.id.clone();
         let device_type_for_sendto = device.device_type.clone();
         let device_id_for_media = device.id.clone();
+        let device_id_for_find = device.id.clone();
 
         // SMS Messages action item
         let sms_row = row![
@@ -121,7 +122,22 @@ pub fn view<'a>(device: &'a DeviceInfo, status_message: Option<&'a str>) -> Elem
                 .on_press(Message::OpenMediaView(device_id_for_media))
                 .width(Length::Fill);
 
-        column![sms_item, sendto_item, media_item,]
+        // Find Phone action item (no chevron - immediate action)
+        let find_row = row![
+            icon::from_name("phonelink-ring-symbolic").size(24),
+            text(fl!("find-phone")).size(14),
+            widget::horizontal_space(),
+        ]
+        .spacing(12)
+        .align_y(Alignment::Center);
+
+        let find_item =
+            widget::button::custom(widget::container(find_row).padding(8).width(Length::Fill))
+                .class(cosmic::theme::Button::Text)
+                .on_press(Message::FindMyPhone(device_id_for_find))
+                .width(Length::Fill);
+
+        column![sms_item, sendto_item, media_item, find_item,]
             .spacing(4)
             .into()
     } else if !device.is_paired {
