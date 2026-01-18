@@ -82,6 +82,7 @@ cosmic-connect-applet/
 │           ├── mod.rs
 │           ├── battery.rs       # Battery status plugin
 │           ├── clipboard.rs     # Clipboard sync plugin
+│           ├── findmyphone.rs   # Find my phone plugin (ring device)
 │           ├── mprisremote.rs   # Media player remote control plugin
 │           ├── notifications.rs # Notifications plugin
 │           ├── ping.rs          # Ping plugin
@@ -224,6 +225,7 @@ KDE Connect exposes these key D-Bus interfaces:
 | `org.kde.kdeconnect.device` | `/modules/kdeconnect/devices/<id>` | Per-device operations, pairing |
 | `org.kde.kdeconnect.device.battery` | (same + /battery) | Battery status (charge, isCharging) |
 | `org.kde.kdeconnect.device.clipboard` | (same + /clipboard) | Clipboard sync |
+| `org.kde.kdeconnect.device.findmyphone` | (same + /findmyphone) | Trigger phone to ring |
 | `org.kde.kdeconnect.device.mprisremote` | (same + /mprisremote) | Media player control (play, pause, volume) |
 | `org.kde.kdeconnect.device.ping` | (same + /ping) | Send ping to device |
 | `org.kde.kdeconnect.device.notifications` | (same + /notifications) | List active notifications |
@@ -493,10 +495,11 @@ pub enum ViewMode {
 When viewing a connected device, the page is organized as:
 
 1. **Header** - Back button, device icon, name, type, status, battery
-2. **Actions** (clickable list items with chevrons):
-   - SMS Messages → Opens ConversationList
-   - Send to [device] → Opens SendTo submenu
-   - Media Controls → Opens MediaControls
+2. **Actions** (clickable list items):
+   - SMS Messages → Opens ConversationList (with chevron)
+   - Send to [device] → Opens SendTo submenu (with chevron)
+   - Media Controls → Opens MediaControls (with chevron)
+   - Find Phone → Triggers phone to ring (no chevron - immediate action)
 3. **Pairing section** - Pair/unpair buttons based on state
 4. **Notifications section** - List of device notifications (if any)
 
@@ -546,7 +549,7 @@ widget::button::custom(
 .width(Length::Fill)
 ```
 
-**When to use chevrons:** Include the `go-next-symbolic` chevron icon for items that navigate to another view (e.g., SMS Messages, Media Controls). Omit it for items that perform immediate actions (e.g., Share file, Send Clipboard, Send Ping).
+**When to use chevrons:** Include the `go-next-symbolic` chevron icon for items that navigate to another view (e.g., SMS Messages, Media Controls). Omit it for items that perform immediate actions (e.g., Share file, Send Clipboard, Send Ping, Find Phone).
 
 ## D-Bus Signal Subscription
 
@@ -839,7 +842,6 @@ Potential features to implement in future development:
 - Loop and shuffle toggle controls
 
 ### Additional KDE Connect Plugins
-- **Find My Phone** - Trigger phone to ring for locating it
 - **Run Commands** - Execute predefined commands on the phone
 - **Mousepad/Keyboard Input** - Send mouse movements and keyboard input to phone
 - **Telephony** - Show incoming call notifications, mute ringer
