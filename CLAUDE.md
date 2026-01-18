@@ -505,26 +505,39 @@ When viewing a connected device, the page is organized as:
 The "Send to [device]" submenu consolidates sending actions:
 
 1. **Back button** - Returns to device page
-2. **Share file** - Opens file picker
-3. **Send Clipboard** - Sends current clipboard contents
-4. **Send Ping** - Sends ping to device
+2. **Share file** - Opens file picker (list item)
+3. **Send Clipboard** - Sends current clipboard contents (list item)
+4. **Send Ping** - Sends ping to device (list item)
 5. **Divider**
 6. **Share text** - Text input with Send button
 
+Items 2-4 use the clickable list item pattern (without chevrons since they perform immediate actions rather than navigating to another view).
+
 ### Clickable List Item Pattern
 
-Actions on the device page use a clickable list item style (matching the device list):
+Actions use a clickable list item style for consistent full-width layout:
 
 ```rust
+// For navigation items (with chevron)
 let row = row![
     icon::from_name("icon-name").size(24),
     text(fl!("label")).size(14),
     widget::horizontal_space(),
-    icon::from_name("go-next-symbolic").size(16),  // Chevron
+    icon::from_name("go-next-symbolic").size(16),  // Chevron for navigation
 ]
 .spacing(12)
 .align_y(Alignment::Center);
 
+// For action items (no chevron)
+let row = row![
+    icon::from_name("icon-name").size(24),
+    text(fl!("label")).size(14),
+    widget::horizontal_space(),
+]
+.spacing(12)
+.align_y(Alignment::Center);
+
+// Both use the same button wrapper
 widget::button::custom(
     widget::container(row).padding(8).width(Length::Fill),
 )
@@ -532,6 +545,8 @@ widget::button::custom(
 .on_press(Message::SomeAction)
 .width(Length::Fill)
 ```
+
+**When to use chevrons:** Include the `go-next-symbolic` chevron icon for items that navigate to another view (e.g., SMS Messages, Media Controls). Omit it for items that perform immediate actions (e.g., Share file, Send Clipboard, Send Ping).
 
 ## D-Bus Signal Subscription
 
