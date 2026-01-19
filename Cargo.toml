@@ -49,5 +49,8 @@ rfd = { version = "0.15", default-features = false, features = ["gtk3"] }
 # Desktop notifications
 notify-rust = "4"
 
+# System
+libc = "0.2"
+
 # Internal crates
 kdeconnect-dbus = { path = "kdeconnect-dbus" }

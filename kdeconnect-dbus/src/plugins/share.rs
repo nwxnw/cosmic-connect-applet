@@ -1,6 +1,6 @@
 //! D-Bus proxy for the share plugin.
 //!
-//! Allows sharing files and text to devices.
+//! Allows sharing files and text to devices, and receiving share notifications.
 
 use zbus::proxy;
 
@@ -17,4 +17,12 @@ pub trait Share {
     /// Share text to the device's clipboard.
     #[zbus(name = "shareText")]
     fn share_text(&self, text: &str) -> zbus::Result<()>;
+
+    /// Signal emitted when a file, URL, or text is received from a device.
+    ///
+    /// # Arguments
+    /// * `url` - The file:// URL where the received file was saved,
+    ///           or the URL/text that was received
+    #[zbus(signal, name = "shareReceived")]
+    fn share_received(&self, url: String);
 }

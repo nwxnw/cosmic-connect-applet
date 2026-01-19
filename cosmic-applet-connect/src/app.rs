@@ -197,6 +197,14 @@ pub enum Message {
         phone_number: String,
         contact_name: String,
     },
+
+    // File Notifications
+    /// File received via D-Bus signal
+    FileReceived {
+        device_name: String,
+        file_url: String,
+        file_name: String,
+    },
 }
 
 /// Keys for boolean settings that can be toggled.
@@ -211,6 +219,7 @@ pub enum SettingKey {
     CallNotifications,
     CallShowNumber,
     CallShowName,
+    FileNotifications,
 }
 
 /// Basic device information for display.
@@ -360,6 +369,10 @@ pub struct ConnectApplet {
     // SMS notification deduplication
     /// Last seen SMS timestamp per thread_id to avoid duplicate notifications
     last_seen_sms: HashMap<i64, i64>,
+
+    // File notification deduplication
+    /// Last received file URL to avoid duplicate notifications
+    last_received_file: Option<String>,
 }
 
 impl Application for ConnectApplet {
@@ -425,6 +438,8 @@ impl Application for ConnectApplet {
             sendto_device_type: None,
             // SMS notification deduplication
             last_seen_sms: HashMap::new(),
+            // File notification deduplication
+            last_received_file: None,
         };
 
         // Connect to D-Bus on startup
@@ -799,6 +814,9 @@ impl Application for ConnectApplet {
                     SettingKey::CallShowName => {
                         self.config.call_notification_show_name =
                             !self.config.call_notification_show_name;
+                    }
+                    SettingKey::FileNotifications => {
+                        self.config.file_notifications = !self.config.file_notifications;
                     }
                 }
                 tracing::debug!("Settings updated: {:?}", self.config);
@@ -1403,6 +1421,53 @@ impl Application for ConnectApplet {
                     |_| cosmic::Action::App(Message::RefreshDevices),
                 );
             }
+
+            // File Notifications
+            Message::FileReceived {
+                device_name: device_id,
+                file_url,
+                file_name,
+            } => {
+                // Secondary deduplication check (primary is file-based cross-process dedup)
+                if self.last_received_file.as_ref() == Some(&file_url) {
+                    return cosmic::app::Task::none();
+                }
+                self.last_received_file = Some(file_url.clone());
+
+                // Look up actual device name from cached devices
+                let device_name = self
+                    .devices
+                    .iter()
+                    .find(|d| d.id == device_id)
+                    .map(|d| d.name.clone())
+                    .unwrap_or_else(|| device_id.clone());
+
+                // Only show notification if file notifications are enabled
+                if self.config.file_notifications {
+                    let summary = fl!("file-received-from", device = device_name.clone());
+                    let file_name_clone = file_name.clone();
+
+                    return cosmic::app::Task::perform(
+                        async move {
+                            // Use spawn_blocking to run notify_rust in a blocking context
+                            let result = tokio::task::spawn_blocking(move || {
+                                notify_rust::Notification::new()
+                                    .summary(&summary)
+                                    .body(&file_name_clone)
+                                    .icon("folder-download-symbolic")
+                                    .appname("COSMIC Connect")
+                                    .timeout(notify_rust::Timeout::Milliseconds(5000)) // 5 second timeout
+                                    .show()
+                            }).await;
+
+                            if let Ok(Err(e)) = result {
+                                tracing::warn!("Failed to show file notification: {}", e);
+                            }
+                        },
+                        |_| cosmic::Action::App(Message::RefreshDevices),
+                    );
+                }
+            }
         }
 
         cosmic::app::Task::none()
@@ -1547,6 +1612,9 @@ impl Application for ConnectApplet {
         {
             subscriptions.push(Subscription::run(call_notification_subscription));
         }
+
+        // Note: File notifications are handled in the main dbus_signal_subscription
+        // to avoid issues with multiple D-Bus connections and match rules
 
         Subscription::batch(subscriptions)
     }
@@ -1694,6 +1762,16 @@ impl ConnectApplet {
                     SettingKey::CallShowNumber,
                 ));
         }
+
+        // File notifications section
+        settings_col = settings_col
+            .push(widget::divider::horizontal::default())
+            .push(self.view_setting_toggle(
+                fl!("settings-file-notifications"),
+                fl!("settings-file-notifications-desc"),
+                self.config.file_notifications,
+                SettingKey::FileNotifications,
+            ));
 
         widget::container(settings_col).width(Length::Fill).into()
     }
@@ -2861,7 +2939,78 @@ enum DbusSubscriptionState {
         #[allow(dead_code)]
         conn: Connection,
         stream: zbus::MessageStream,
+        /// Last file URL and time for deduplication of rapid signals
+        last_file: Option<(String, std::time::Instant)>,
     },
+}
+
+/// Check if we should show a file notification (cross-process deduplication via file lock).
+/// Returns true if this is the first notification for this file within the dedup window.
+fn should_show_file_notification(file_url: &str) -> bool {
+    use std::fs::OpenOptions;
+    use std::io::{Read, Seek, Write};
+    use std::time::{SystemTime, UNIX_EPOCH};
+
+    let dedup_file = "/tmp/cosmic-connect-file-dedup";
+    let dedup_window_ms: u128 = 2000; // 2 second window
+
+    // Get current time as milliseconds since epoch
+    let now_ms = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|d| d.as_millis())
+        .unwrap_or(0);
+
+    // Try to open or create the dedup file
+    let mut file = match OpenOptions::new()
+        .read(true)
+        .write(true)
+        .create(true)
+        .truncate(false)
+        .open(dedup_file)
+    {
+        Ok(f) => f,
+        Err(_) => return true, // Can't open file, allow notification
+    };
+
+    // Use file locking to ensure atomic read-modify-write
+    use std::os::unix::io::AsRawFd;
+    let fd = file.as_raw_fd();
+
+    // Acquire exclusive lock (blocking)
+    unsafe {
+        if libc::flock(fd, libc::LOCK_EX) != 0 {
+            return true; // Lock failed, allow notification
+        }
+    }
+
+    // Read current contents
+    let mut contents = String::new();
+    let _ = file.read_to_string(&mut contents);
+
+    let should_notify = if let Some((stored_url, stored_time_str)) = contents.split_once('\n') {
+        if let Ok(stored_time) = stored_time_str.parse::<u128>() {
+            // Check if same file and within window
+            stored_url != file_url || now_ms.saturating_sub(stored_time) >= dedup_window_ms
+        } else {
+            true
+        }
+    } else {
+        true
+    };
+
+    if should_notify {
+        // Write new file URL and timestamp
+        let _ = file.set_len(0); // Truncate
+        let _ = file.rewind();
+        let _ = write!(file, "{}\n{}", file_url, now_ms);
+    }
+
+    // Release lock
+    unsafe {
+        libc::flock(fd, libc::LOCK_UN);
+    }
+
+    should_notify
 }
 
 /// Create a stream that listens for D-Bus signals from KDE Connect.
@@ -2920,6 +3069,21 @@ fn dbus_signal_subscription() -> impl futures_util::Stream<Item = Message> {
                     }
                 }
 
+                // Subscribe to share plugin signals for file notifications
+                if let Ok(rule) = zbus::MatchRule::builder()
+                    .msg_type(zbus::message::Type::Signal)
+                    .interface("org.kde.kdeconnect.device.share")
+                    .map(|b| b.build())
+                {
+                    if let Err(e) = dbus_proxy.add_match_rule(rule).await {
+                        tracing::warn!("Failed to add share match rule: {}", e);
+                    } else {
+                        tracing::debug!("Added match rule for share signals");
+                    }
+                } else {
+                    tracing::warn!("Failed to build share match rule");
+                }
+
                 tracing::debug!("D-Bus signal subscription started");
 
                 // Create message stream
@@ -2927,10 +3091,10 @@ fn dbus_signal_subscription() -> impl futures_util::Stream<Item = Message> {
 
                 Some((
                     Message::DbusSignalReceived,
-                    DbusSubscriptionState::Listening { conn, stream },
+                    DbusSubscriptionState::Listening { conn, stream, last_file: None },
                 ))
             }
-            DbusSubscriptionState::Listening { conn, mut stream } => {
+            DbusSubscriptionState::Listening { conn, mut stream, last_file } => {
                 // Wait for relevant signals - be selective to avoid excessive refreshes
                 loop {
                     match stream.next().await {
@@ -2941,6 +3105,54 @@ fn dbus_signal_subscription() -> impl futures_util::Stream<Item = Message> {
                                 {
                                     let iface_str = interface.as_str();
                                     let member_str = member.as_str();
+
+                                    // Handle share signals for file notifications
+                                    if iface_str == "org.kde.kdeconnect.device.share"
+                                        && member_str == "shareReceived"
+                                    {
+                                        // Extract device ID from path
+                                        if let Some(path) = msg.header().path() {
+                                            let path_str = path.as_str();
+                                            if let Some(rest) = path_str
+                                                .strip_prefix("/modules/kdeconnect/devices/")
+                                            {
+                                                let device_id =
+                                                    rest.split('/').next().unwrap_or(rest).to_string();
+
+                                                // Parse the signal body
+                                                let body = msg.body();
+                                                if let Ok((file_url,)) = body.deserialize::<(String,)>() {
+                                                    // Cross-process deduplication via file lock
+                                                    // KDE Connect sends 3 duplicate signals per file transfer
+                                                    // and COSMIC spawns multiple applet processes
+                                                    if !should_show_file_notification(&file_url) {
+                                                        continue;
+                                                    }
+
+                                                    let file_name = file_url
+                                                        .strip_prefix("file://")
+                                                        .unwrap_or(&file_url)
+                                                        .rsplit('/')
+                                                        .next()
+                                                        .unwrap_or("file")
+                                                        .to_string();
+
+                                                    return Some((
+                                                        Message::FileReceived {
+                                                            device_name: device_id,
+                                                            file_url,
+                                                            file_name,
+                                                        },
+                                                        DbusSubscriptionState::Listening {
+                                                            conn,
+                                                            stream,
+                                                            last_file,
+                                                        },
+                                                    ));
+                                                }
+                                            }
+                                        }
+                                    }
 
                                     // Only trigger refresh on specific device-related signals
                                     let is_relevant = match iface_str {
@@ -2974,7 +3186,7 @@ fn dbus_signal_subscription() -> impl futures_util::Stream<Item = Message> {
                                         tracing::debug!("D-Bus signal: {}.{}", interface, member);
                                         return Some((
                                             Message::DbusSignalReceived,
-                                            DbusSubscriptionState::Listening { conn, stream },
+                                            DbusSubscriptionState::Listening { conn, stream, last_file },
                                         ));
                                     }
                                 }

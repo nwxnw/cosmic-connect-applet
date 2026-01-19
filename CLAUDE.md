@@ -784,6 +784,57 @@ notify_rust::Notification::new()
 
 The KDE Connect daemon handles ringer muting internally via KNotification actions. There's no D-Bus method exposed to mute the ringer programmatically from external applications. This would require upstream KDE Connect changes.
 
+## File Receive Notifications
+
+The applet shows desktop notifications when files are received from connected devices.
+
+### D-Bus Signal
+
+The share plugin emits a `shareReceived` signal with a single string argument:
+- `file_url` - The file:// URL of the received file (e.g., `file:///home/user/Downloads/photo.jpg`)
+
+### Implementation
+
+1. **D-Bus Signal Subscription**: The main D-Bus subscription listens for `shareReceived` signals from `org.kde.kdeconnect.device.share`.
+
+2. **Cross-Process Deduplication**: COSMIC spawns multiple applet processes, and KDE Connect sends 3 duplicate signals per file transfer. A file-based lock mechanism (`/tmp/cosmic-connect-file-dedup`) ensures only one notification is shown:
+   - Uses `libc::flock()` for atomic file locking across processes
+   - Stores last file URL and timestamp
+   - Deduplication window of 2 seconds
+
+3. **Privacy Settings**: Users can enable/disable file notifications:
+   - `file_notifications` - Master toggle for file notifications
+
+### Notification Display
+
+```rust
+notify_rust::Notification::new()
+    .summary(&fl!("file-received-from", device = device_name))
+    .body(&file_name)
+    .icon("folder-download-symbolic")
+    .appname("COSMIC Connect")
+    .timeout(notify_rust::Timeout::Milliseconds(5000))
+    .show()
+```
+
+### Cross-Process Deduplication Details
+
+COSMIC panel spawns applets as separate processes (each with its own PID and memory space). This means:
+- Static variables are NOT shared between applet instances
+- Multiple processes receive the same D-Bus signals
+- Traditional in-process deduplication doesn't work
+
+The solution uses a temp file with POSIX file locking:
+```rust
+fn should_show_file_notification(file_url: &str) -> bool {
+    // Open /tmp/cosmic-connect-file-dedup
+    // Acquire exclusive lock with flock(fd, LOCK_EX)
+    // Check if same file URL within 2 second window
+    // Update file with new URL and timestamp
+    // Release lock with flock(fd, LOCK_UN)
+}
+```
+
 ## Media Controls Implementation
 
 ### D-Bus Interface

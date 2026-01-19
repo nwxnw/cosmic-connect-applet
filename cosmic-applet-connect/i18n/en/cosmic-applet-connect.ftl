@@ -119,6 +119,14 @@ incoming-call-from = Incoming call from { $name }
 missed-call = Missed Call
 missed-call-from = Missed call from { $name }
 
+# File Notifications settings
+settings-file-notifications = File notifications
+settings-file-notifications-desc = Show notification when files are received
+
+# File Notification text
+file-received = File Received
+file-received-from = File received from { $device }
+
 # SMS/Messages
 messages-title = Messages - { $device }
 loading-conversations = Loading conversations...
