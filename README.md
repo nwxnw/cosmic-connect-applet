@@ -6,8 +6,6 @@ COSMIC Connected connects your Android phone to your COSMIC desktop, enabling SM
 
 Personal note: This project relied on Claude Code as a senior developer. My programming experience was at one time competent, but is outdated by decades. This project is much more than an afternoon vibe code - but the coding was done by Claude. It allowed me to create the app I needed, and I thought others might want it...so in the spirit of sharing...if you want it, here it is...come and get it...
 
-Also, this is an alpha. I want your comments, but this is an alpha.
-
 ## Features
 
 - **Device Management** - Pair, unpair, and monitor connected devices
