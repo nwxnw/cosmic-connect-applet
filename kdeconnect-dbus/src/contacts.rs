@@ -3,7 +3,6 @@
 //! KDE Connect syncs contacts as vCard files to ~/.local/share/kpeoplevcard/kdeconnect-{device-id}/
 
 use std::collections::HashMap;
-use std::fs;
 use std::path::PathBuf;
 
 /// A contact with name and phone numbers.
@@ -18,8 +17,12 @@ pub struct Contact {
 /// Contact lookup cache mapping normalized phone numbers to contact names.
 #[derive(Debug, Clone, Default)]
 pub struct ContactLookup {
-    /// Map from normalized phone number to contact name.
+    /// Map from full normalized phone number (all digits) to contact name.
+    /// Used for exact matching.
     phone_to_name: HashMap<String, String>,
+    /// Map from phone suffix (last N digits) to contact name.
+    /// Used for fuzzy matching when exact match fails.
+    suffix_to_name: HashMap<String, String>,
     /// Full list of contacts for name-based searching.
     contacts: Vec<Contact>,
 }
@@ -30,8 +33,9 @@ impl ContactLookup {
         Self::default()
     }
 
-    /// Load contacts from the kpeoplevcard directory for a specific device.
-    pub fn load_for_device(device_id: &str) -> Self {
+    /// Load contacts asynchronously from the kpeoplevcard directory for a specific device.
+    /// Uses tokio::fs for non-blocking file I/O.
+    pub async fn load_for_device(device_id: &str) -> Self {
         let mut lookup = Self::new();
 
         // Get the kpeoplevcard directory
@@ -45,13 +49,21 @@ impl ContactLookup {
             }
         };
 
-        if !vcard_dir.exists() {
-            tracing::debug!("vCard directory does not exist: {:?}", vcard_dir);
-            return lookup;
+        // Check if directory exists using async metadata
+        match tokio::fs::metadata(&vcard_dir).await {
+            Ok(meta) if meta.is_dir() => {}
+            Ok(_) => {
+                tracing::debug!("vCard path is not a directory: {:?}", vcard_dir);
+                return lookup;
+            }
+            Err(_) => {
+                tracing::debug!("vCard directory does not exist: {:?}", vcard_dir);
+                return lookup;
+            }
         }
 
-        // Read all .vcf files
-        let entries = match fs::read_dir(&vcard_dir) {
+        // Read all .vcf files asynchronously
+        let mut entries = match tokio::fs::read_dir(&vcard_dir).await {
             Ok(e) => e,
             Err(e) => {
                 tracing::warn!("Failed to read vCard directory: {}", e);
@@ -59,16 +71,24 @@ impl ContactLookup {
             }
         };
 
-        for entry in entries.flatten() {
+        while let Ok(Some(entry)) = entries.next_entry().await {
             let path = entry.path();
             if path.extension().map(|e| e == "vcf").unwrap_or(false) {
-                if let Some(contact) = parse_vcard(&path) {
+                if let Some(contact) = parse_vcard_async(&path).await {
                     for phone in &contact.phone_numbers {
-                        let normalized = normalize_phone_number(phone);
-                        if !normalized.is_empty() {
+                        let (full_digits, suffix) = get_phone_keys(phone);
+                        if full_digits.len() >= MIN_PHONE_DIGITS {
+                            // Store in exact match map
                             lookup
                                 .phone_to_name
-                                .insert(normalized, contact.name.clone());
+                                .insert(full_digits, contact.name.clone());
+                            // Store in suffix map for fuzzy matching
+                            // (only if suffix differs from full, to avoid duplicates)
+                            if suffix.len() >= MIN_PHONE_DIGITS {
+                                lookup
+                                    .suffix_to_name
+                                    .insert(suffix, contact.name.clone());
+                            }
                         }
                     }
                     lookup.contacts.push(contact);
@@ -82,18 +102,38 @@ impl ContactLookup {
             .sort_by(|a, b| a.name.to_lowercase().cmp(&b.name.to_lowercase()));
 
         tracing::info!(
-            "Loaded {} contacts with {} phone mappings",
+            "Loaded {} contacts with {} exact + {} suffix phone mappings",
             lookup.contacts.len(),
-            lookup.phone_to_name.len()
+            lookup.phone_to_name.len(),
+            lookup.suffix_to_name.len()
         );
         lookup
     }
 
     /// Look up a contact name by phone number.
+    /// Tries exact match first, then falls back to suffix matching.
     /// Returns None if no contact is found.
     pub fn get_name(&self, phone_number: &str) -> Option<&str> {
-        let normalized = normalize_phone_number(phone_number);
-        self.phone_to_name.get(&normalized).map(|s| s.as_str())
+        let (full_digits, suffix) = get_phone_keys(phone_number);
+
+        // Skip lookup for numbers that are too short
+        if full_digits.len() < MIN_PHONE_DIGITS {
+            return None;
+        }
+
+        // Try exact match first
+        if let Some(name) = self.phone_to_name.get(&full_digits) {
+            return Some(name.as_str());
+        }
+
+        // Fall back to suffix matching
+        if suffix.len() >= MIN_PHONE_DIGITS {
+            if let Some(name) = self.suffix_to_name.get(&suffix) {
+                return Some(name.as_str());
+            }
+        }
+
+        None
     }
 
     /// Look up a contact name by phone number, returning the phone number if not found.
@@ -137,23 +177,41 @@ impl ContactLookup {
     }
 }
 
-/// Normalize a phone number by removing non-digit characters.
-/// Also handles country code variations (e.g., +1 vs 1 vs no prefix).
-fn normalize_phone_number(phone: &str) -> String {
-    // Extract only digits
-    let digits: String = phone.chars().filter(|c| c.is_ascii_digit()).collect();
+/// Minimum number of digits for a valid phone number match.
+const MIN_PHONE_DIGITS: usize = 7;
 
-    // If it's a US number (10 or 11 digits starting with 1), normalize to 10 digits
-    if digits.len() == 11 && digits.starts_with('1') {
-        digits[1..].to_string()
+/// Number of trailing digits to use for suffix matching.
+/// This handles country code variations across different regions.
+const SUFFIX_MATCH_DIGITS: usize = 10;
+
+/// Normalize a phone number by removing non-digit characters.
+/// Returns the full digit string for exact matching.
+fn normalize_phone_number(phone: &str) -> String {
+    phone.chars().filter(|c| c.is_ascii_digit()).collect()
+}
+
+/// Get the suffix of a phone number for fuzzy matching.
+/// Returns the last SUFFIX_MATCH_DIGITS digits, or all digits if shorter.
+/// This handles country code variations (e.g., +1-555-123-4567 matches 5551234567).
+fn phone_suffix(digits: &str) -> &str {
+    if digits.len() > SUFFIX_MATCH_DIGITS {
+        &digits[digits.len() - SUFFIX_MATCH_DIGITS..]
     } else {
         digits
     }
 }
 
-/// Parse a vCard file and extract the contact information.
-fn parse_vcard(path: &PathBuf) -> Option<Contact> {
-    let content = fs::read_to_string(path).ok()?;
+/// Get all normalized forms of a phone number for storage/lookup.
+/// Returns (full_digits, suffix) where suffix may equal full_digits for short numbers.
+fn get_phone_keys(phone: &str) -> (String, String) {
+    let digits = normalize_phone_number(phone);
+    let suffix = phone_suffix(&digits).to_string();
+    (digits, suffix)
+}
+
+/// Parse a vCard file asynchronously and extract the contact information.
+async fn parse_vcard_async(path: &PathBuf) -> Option<Contact> {
+    let content = tokio::fs::read_to_string(path).await.ok()?;
 
     let mut name = String::new();
     let mut phone_numbers = Vec::new();
@@ -194,9 +252,62 @@ mod tests {
 
     #[test]
     fn test_normalize_phone_number() {
+        // Basic normalization - just extract digits
         assert_eq!(normalize_phone_number("(555) 123-4567"), "5551234567");
-        assert_eq!(normalize_phone_number("+1-555-123-4567"), "5551234567");
-        assert_eq!(normalize_phone_number("15551234567"), "5551234567");
+        assert_eq!(normalize_phone_number("+1-555-123-4567"), "15551234567");
+        assert_eq!(normalize_phone_number("15551234567"), "15551234567");
         assert_eq!(normalize_phone_number("555.123.4567"), "5551234567");
+    }
+
+    #[test]
+    fn test_phone_suffix() {
+        // Numbers <= 10 digits return as-is
+        assert_eq!(phone_suffix("5551234567"), "5551234567");
+        assert_eq!(phone_suffix("1234567"), "1234567");
+
+        // Numbers > 10 digits return last 10
+        assert_eq!(phone_suffix("15551234567"), "5551234567");
+        assert_eq!(phone_suffix("4915551234567"), "5551234567"); // German country code
+    }
+
+    #[test]
+    fn test_get_phone_keys() {
+        // US number with country code
+        let (full, suffix) = get_phone_keys("+1-555-123-4567");
+        assert_eq!(full, "15551234567");
+        assert_eq!(suffix, "5551234567");
+
+        // US number without country code
+        let (full, suffix) = get_phone_keys("(555) 123-4567");
+        assert_eq!(full, "5551234567");
+        assert_eq!(suffix, "5551234567"); // Same since <= 10 digits
+
+        // International number
+        let (full, suffix) = get_phone_keys("+49-555-123-4567");
+        assert_eq!(full, "495551234567");
+        assert_eq!(suffix, "5551234567");
+    }
+
+    #[test]
+    fn test_suffix_matching() {
+        let mut lookup = ContactLookup::new();
+
+        // Simulate contact stored with country code
+        let contact_phone = "15551234567"; // US format with 1
+        lookup
+            .phone_to_name
+            .insert(contact_phone.to_string(), "John Doe".to_string());
+        lookup
+            .suffix_to_name
+            .insert("5551234567".to_string(), "John Doe".to_string());
+
+        // Should match with country code
+        assert_eq!(lookup.get_name("+1-555-123-4567"), Some("John Doe"));
+
+        // Should match without country code via suffix
+        assert_eq!(lookup.get_name("555-123-4567"), Some("John Doe"));
+
+        // Should match formatted differently
+        assert_eq!(lookup.get_name("(555) 123-4567"), Some("John Doe"));
     }
 }

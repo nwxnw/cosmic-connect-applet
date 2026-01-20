@@ -138,6 +138,8 @@ pub enum Message {
     CloseConversation,
     /// Conversations loaded from device
     ConversationsLoaded(Vec<ConversationSummary>),
+    /// Contacts loaded asynchronously for a device
+    ContactsLoaded(String, ContactLookup),
     /// User clicked "Load More" button in conversation list
     LoadMoreConversations,
     /// Messages loaded for a specific thread
@@ -170,6 +172,8 @@ pub enum Message {
     LoadMoreMessages,
     /// Older messages fetched successfully (thread_id, messages, has_more)
     OlderMessagesLoaded(i64, Vec<SmsMessage>, bool),
+    /// Message thread scrolled - used for prefetching older messages
+    MessageThreadScrolled(scrollable::Viewport),
 
     // Media controls
     /// Open media controls for a device
@@ -871,7 +875,7 @@ impl Application for ConnectApplet {
                     self.sms_device_name = device_name;
 
                     if has_cache {
-                        // Use cached conversations, trigger background refresh
+                        // Use cached conversations and contacts, trigger background refresh
                         self.sms_loading = false;
                         tracing::info!(
                             "Using cached {} conversations for device: {}",
@@ -889,12 +893,26 @@ impl Application for ConnectApplet {
                         self.conversations.clear();
                         self.conversations_displayed = 10;
                         self.message_cache.clear();
-                        self.contacts = ContactLookup::load_for_device(&device_id);
+                        self.contacts = ContactLookup::default(); // Will be loaded async
                         tracing::info!("Opening SMS view for device: {}", device_id);
-                        return cosmic::app::Task::perform(
-                            fetch_conversations_async(conn.clone(), device_id),
-                            cosmic::Action::App,
-                        );
+
+                        // Load contacts and conversations in parallel (non-blocking)
+                        let device_id_for_contacts = device_id.clone();
+                        return cosmic::app::Task::batch(vec![
+                            cosmic::app::Task::perform(
+                                fetch_conversations_async(conn.clone(), device_id),
+                                cosmic::Action::App,
+                            ),
+                            cosmic::app::Task::perform(
+                                async move {
+                                    let contacts =
+                                        ContactLookup::load_for_device(&device_id_for_contacts)
+                                            .await;
+                                    Message::ContactsLoaded(device_id_for_contacts, contacts)
+                                },
+                                cosmic::Action::App,
+                            ),
+                        ]);
                     }
                 }
             }
@@ -1032,6 +1050,23 @@ impl Application for ConnectApplet {
                 }
                 self.sms_loading = false;
             }
+            Message::ContactsLoaded(device_id, contacts) => {
+                // Only update if contacts are for the current SMS device
+                if self.sms_device_id.as_ref() == Some(&device_id) {
+                    tracing::info!(
+                        "Loaded {} contacts for device {}",
+                        contacts.len(),
+                        device_id
+                    );
+                    self.contacts = contacts;
+                } else {
+                    tracing::debug!(
+                        "Ignoring contacts for device {} (current: {:?})",
+                        device_id,
+                        self.sms_device_id
+                    );
+                }
+            }
             Message::LoadMoreConversations => {
                 // Show 10 more conversations (up to total available)
                 self.conversations_displayed =
@@ -1143,6 +1178,46 @@ impl Application for ConnectApplet {
                     }
                 }
             }
+            Message::MessageThreadScrolled(viewport) => {
+                // Prefetch older messages when user scrolls near the top
+                // Trigger when within 100 pixels of the top and not already loading
+                const PREFETCH_THRESHOLD_PX: f32 = 100.0;
+
+                let scroll_offset = viewport.absolute_offset().y;
+
+                if scroll_offset < PREFETCH_THRESHOLD_PX
+                    && self.messages_has_more
+                    && !self.messages_loading_more
+                    && !self.messages.is_empty()
+                {
+                    tracing::debug!(
+                        "Prefetching older messages (scroll_y={:.1}px)",
+                        scroll_offset
+                    );
+
+                    // Trigger loading older messages (same logic as LoadMoreMessages)
+                    if let (Some(conn), Some(device_id), Some(thread_id)) = (
+                        &self.dbus_connection,
+                        &self.sms_device_id,
+                        self.current_thread_id,
+                    ) {
+                        self.messages_loading_more = true;
+                        let start_index = self.messages_loaded_count;
+                        let count = self.config.messages_per_page;
+
+                        return cosmic::app::Task::perform(
+                            fetch_older_messages_async(
+                                conn.clone(),
+                                device_id.clone(),
+                                thread_id,
+                                start_index,
+                                count,
+                            ),
+                            cosmic::Action::App,
+                        );
+                    }
+                }
+            }
             Message::SmsError(err) => {
                 tracing::error!("SMS error: {}", err);
                 self.status_message = Some(format!("SMS error: {}", err));
@@ -1231,6 +1306,7 @@ impl Application for ConnectApplet {
                                 message_type: kdeconnect_dbus::plugins::MessageType::Sent,
                                 read: true,
                                 thread_id,
+                                uid: 0, // Placeholder for optimistic message; will be replaced on sync
                                 sub_id: self.current_thread_sub_id.unwrap_or(-1),
                             };
 
@@ -1552,28 +1628,32 @@ impl Application for ConnectApplet {
                 // Update last seen timestamp for this thread
                 self.last_seen_sms.insert(message.thread_id, message.date);
 
-                // Load contacts to resolve sender name
-                let contacts = ContactLookup::load_for_device(&device_id);
-                let sender_name = contacts.get_name_or_number(message.primary_address());
+                // Capture config settings for the async block
+                let show_sender = self.config.sms_notification_show_sender;
+                let show_content = self.config.sms_notification_show_content;
+                let message_body = message.body.clone();
+                let primary_address = message.primary_address().to_string();
 
-                // Build notification based on privacy settings
-                let summary = if self.config.sms_notification_show_sender {
-                    fl!("sms-notification-title-from", sender = sender_name.clone())
-                } else {
-                    fl!("sms-notification-title")
-                };
-
-                let body = if self.config.sms_notification_show_content {
-                    message.body.clone()
-                } else {
-                    fl!("sms-notification-body-hidden")
-                };
-
-                // Show notification (non-blocking, fire-and-forget)
-                // Note: Click-to-open functionality could be added in the future using
-                // channels to communicate between the notification callback and the main app
+                // Show notification asynchronously (loads contacts without blocking UI)
                 return cosmic::app::Task::perform(
                     async move {
+                        // Load contacts asynchronously to resolve sender name
+                        let contacts = ContactLookup::load_for_device(&device_id).await;
+                        let sender_name = contacts.get_name_or_number(&primary_address);
+
+                        // Build notification based on privacy settings
+                        let summary = if show_sender {
+                            fl!("sms-notification-title-from", sender = sender_name)
+                        } else {
+                            fl!("sms-notification-title")
+                        };
+
+                        let body = if show_content {
+                            message_body
+                        } else {
+                            fl!("sms-notification-body-hidden")
+                        };
+
                         // Use spawn_blocking to run notify_rust in a blocking context
                         // to avoid "Cannot start a runtime from within a runtime" panics
                         let result = tokio::task::spawn_blocking(move || {
@@ -2269,7 +2349,8 @@ impl ConnectApplet {
             widget::container(
                 widget::scrollable(msg_column)
                     .id(widget::Id::new("message-thread"))
-                    .height(Length::Fill),
+                    .height(Length::Fill)
+                    .on_scroll(Message::MessageThreadScrolled),
             )
             .width(Length::Fill)
             .height(Length::Fill)
@@ -4030,11 +4111,24 @@ async fn fetch_conversations_via_signals(
     }
 
     // Activity-based timeout tracking
-    let overall_timeout = tokio::time::Duration::from_secs(15);
+    // Use shorter timeout when we have cached data (just need incremental updates)
+    // Use longer timeout when no cache (need to wait for phone to send data)
+    let has_cache = !conversations_map.is_empty();
+    let overall_timeout = if has_cache {
+        tokio::time::Duration::from_secs(3) // Quick refresh when cache exists
+    } else {
+        tokio::time::Duration::from_secs(15) // Longer wait for initial load
+    };
     let activity_timeout = tokio::time::Duration::from_millis(500);
     let start_time = tokio::time::Instant::now();
     let mut last_activity = tokio::time::Instant::now();
     let mut loaded_signal_received = false;
+
+    tracing::info!(
+        "Starting signal collection: has_cache={}, timeout={}s",
+        has_cache,
+        overall_timeout.as_secs()
+    );
 
     loop {
         tokio::select! {
@@ -4307,7 +4401,8 @@ async fn fetch_messages_async(
     }
 
     // Collect messages from signals until conversationLoaded or timeout
-    let mut messages_map: HashMap<i64, SmsMessage> = HashMap::new();
+    // Use uid (unique message ID) as key for reliable deduplication
+    let mut messages_map: HashMap<i32, SmsMessage> = HashMap::new();
     let timeout = tokio::time::Duration::from_secs(10);
     let start_time = tokio::time::Instant::now();
 
@@ -4319,8 +4414,8 @@ async fn fetch_messages_async(
                     Ok(args) => {
                         if let Some(msg) = parse_sms_message(&args.msg) {
                             if msg.thread_id == thread_id {
-                                // Use date as key to deduplicate
-                                messages_map.insert(msg.date, msg);
+                                // Use uid as key for reliable deduplication
+                                messages_map.insert(msg.uid, msg);
                                 tracing::debug!(
                                     "Received message for thread {}, total: {}",
                                     thread_id,
@@ -4353,7 +4448,7 @@ async fn fetch_messages_async(
                                         if let Ok(args) = signal.args() {
                                             if let Some(msg) = parse_sms_message(&args.msg) {
                                                 if msg.thread_id == thread_id {
-                                                    messages_map.insert(msg.date, msg);
+                                                    messages_map.insert(msg.uid, msg);
                                                     tracing::debug!(
                                                         "Drained message, total: {}",
                                                         messages_map.len()
@@ -4518,7 +4613,8 @@ async fn fetch_older_messages_async(
     }
 
     // Collect messages from signals until conversationLoaded or timeout
-    let mut messages_map: HashMap<i64, SmsMessage> = HashMap::new();
+    // Use uid (unique message ID) as key for reliable deduplication
+    let mut messages_map: HashMap<i32, SmsMessage> = HashMap::new();
     let timeout = tokio::time::Duration::from_secs(10);
     let start_time = tokio::time::Instant::now();
 
@@ -4530,8 +4626,8 @@ async fn fetch_older_messages_async(
                     Ok(args) => {
                         if let Some(msg) = parse_sms_message(&args.msg) {
                             if msg.thread_id == thread_id {
-                                // Use date as key to deduplicate
-                                messages_map.insert(msg.date, msg);
+                                // Use uid as key for reliable deduplication
+                                messages_map.insert(msg.uid, msg);
                                 tracing::debug!(
                                     "Received older message for thread {}, total: {}",
                                     thread_id,
@@ -4563,7 +4659,7 @@ async fn fetch_older_messages_async(
                                         if let Ok(args) = signal.args() {
                                             if let Some(msg) = parse_sms_message(&args.msg) {
                                                 if msg.thread_id == thread_id {
-                                                    messages_map.insert(msg.date, msg);
+                                                    messages_map.insert(msg.uid, msg);
                                                 }
                                             }
                                         }

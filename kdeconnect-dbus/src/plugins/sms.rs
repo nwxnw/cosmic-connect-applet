@@ -159,6 +159,9 @@ pub struct SmsMessage {
     pub read: bool,
     /// The conversation thread ID this message belongs to.
     pub thread_id: i64,
+    /// Unique message ID from Android.
+    /// Used for deduplication instead of timestamp which can have collisions.
+    pub uid: i32,
     /// SIM subscription ID (-1 for default).
     /// Required for MMS group messages to use the correct SIM.
     pub sub_id: i64,
@@ -297,7 +300,9 @@ pub fn parse_sms_message(value: &OwnedValue) -> Option<SmsMessage> {
     // Field 6: thread_id (i64)
     let thread_id = fields.get(6).and_then(get_i64_from_value).unwrap_or(0);
 
-    // Field 7: uID (i32) - unique message ID
+    // Field 7: uID (i32) - unique message ID for deduplication
+    let uid = fields.get(7).and_then(get_i32_from_value).unwrap_or(0);
+
     // Field 8: subID (i64) - SIM subscription ID (which SIM card to use)
     let sub_id = fields.get(8).and_then(get_i64_from_value).unwrap_or(-1);
     // Field 9: attachments (array)
@@ -309,6 +314,7 @@ pub fn parse_sms_message(value: &OwnedValue) -> Option<SmsMessage> {
         message_type: msg_type_parsed,
         read,
         thread_id,
+        uid,
         sub_id,
     })
 }
