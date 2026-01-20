@@ -52,5 +52,8 @@ notify-rust = "4"
 # System
 libc = "0.2"
 
+# Caching
+lru = "0.12"
+
 # Internal crates
 kdeconnect-dbus = { path = "kdeconnect-dbus" }

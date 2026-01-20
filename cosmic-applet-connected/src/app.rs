@@ -40,7 +40,9 @@ use kdeconnect_dbus::{
     contacts::{Contact, ContactLookup},
     plugins::{is_address_valid, ConversationSummary, NotificationInfo, SmsMessage},
 };
+use lru::LruCache;
 use std::collections::HashMap;
+use std::num::NonZeroUsize;
 use std::path::PathBuf;
 use std::sync::Arc;
 use tokio::sync::Mutex;
@@ -355,8 +357,8 @@ pub struct ConnectApplet {
     sms_compose_text: String,
     /// Whether SMS is currently being sent
     sms_sending: bool,
-    /// Cache of messages by thread_id for faster loading
-    message_cache: HashMap<i64, Vec<SmsMessage>>,
+    /// LRU cache of messages by thread_id for faster loading (limited to avoid unbounded growth)
+    message_cache: LruCache<i64, Vec<SmsMessage>>,
 
     // Message pagination state
     /// Number of messages currently loaded for pagination offset
@@ -452,7 +454,9 @@ impl Application for ConnectApplet {
             conversations_displayed: 10,
             sms_compose_text: String::new(),
             sms_sending: false,
-            message_cache: HashMap::new(),
+            message_cache: LruCache::new(
+                NonZeroUsize::new(crate::constants::sms::MESSAGE_CACHE_MAX_CONVERSATIONS).unwrap(),
+            ),
             // Message pagination state
             messages_loaded_count: 0,
             messages_has_more: true,
@@ -1108,7 +1112,7 @@ impl Application for ConnectApplet {
                         }
 
                         // Update cache
-                        self.message_cache.insert(thread_id, msgs.clone());
+                        self.message_cache.put(thread_id, msgs.clone());
                         // Update pagination state
                         self.messages_loaded_count = msgs.len() as u32;
                         self.messages_has_more =
@@ -1179,7 +1183,7 @@ impl Application for ConnectApplet {
                         self.messages_loaded_count = self.messages.len() as u32;
 
                         // Update cache with combined messages
-                        self.message_cache.insert(thread_id, self.messages.clone());
+                        self.message_cache.put(thread_id, self.messages.clone());
                     } else {
                         tracing::info!("No older messages returned for thread {}", thread_id);
                         // No more messages available

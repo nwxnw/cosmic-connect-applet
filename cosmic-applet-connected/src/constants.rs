@@ -44,6 +44,10 @@ pub mod sms {
 
     /// Polling delays for fallback conversation loading (milliseconds).
     pub const FALLBACK_POLLING_DELAYS_MS: &[u64] = &[500, 1000, 1500, 2000, 3000];
+
+    /// Maximum number of conversation message threads to cache.
+    /// When this limit is reached, the least recently accessed conversation is evicted.
+    pub const MESSAGE_CACHE_MAX_CONVERSATIONS: usize = 10;
 }
 
 /// Refresh and polling interval constants.
