@@ -1,0 +1,19 @@
+[package]
+name = "kdeconnect-dbus"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+description = "D-Bus client library for KDE Connect daemon"
+
+[dependencies]
+dirs = "5"
+zbus.workspace = true
+tokio.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+thiserror.workspace = true
+tracing.workspace = true
+
+[dev-dependencies]
+tokio = { workspace = true, features = ["rt-multi-thread", "macros"] }

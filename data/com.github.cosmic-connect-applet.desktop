@@ -1,0 +1,12 @@
+[Desktop Entry]
+Name=Connect
+Comment=Phone connectivity via KDE Connect
+Type=Application
+Exec=cosmic-applet-connect
+Icon=phone-symbolic
+Terminal=false
+Categories=COSMIC;
+NoDisplay=true
+X-CosmicApplet=true
+X-CosmicHoverPopup=Auto
+X-OverflowPriority=10

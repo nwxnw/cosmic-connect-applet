@@ -1,0 +1,31 @@
+[package]
+name = "cosmic-applet-connect"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+description = "COSMIC desktop applet for phone connectivity via KDE Connect"
+
+[dependencies]
+libcosmic.workspace = true
+cosmic-panel-config.workspace = true
+kdeconnect-dbus.workspace = true
+zbus.workspace = true
+tokio.workspace = true
+futures-util.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+thiserror.workspace = true
+anyhow.workspace = true
+tracing.workspace = true
+tracing-subscriber.workspace = true
+rfd.workspace = true
+chrono.workspace = true
+i18n-embed.workspace = true
+i18n-embed-fl.workspace = true
+rust-embed.workspace = true
+notify-rust.workspace = true
+
+[features]
+default = ["wayland"]
+wayland = []

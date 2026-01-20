@@ -1,0 +1,770 @@
+# CLAUDE.md
+
+This file provides guidance to Claude Code when working with the cosmic-connect-applet project.
+
+## Project Overview
+
+COSMIC Connect is a desktop applet for the COSMIC desktop environment (System76's Rust-based DE) that provides phone-to-desktop connectivity. It leverages KDE Connect's daemon as a backend service while providing a native COSMIC/libcosmic user interface.
+
+**Key Principle:** This project does NOT modify KDE Connect. It consumes the KDE Connect daemon (`kdeconnectd`) as a D-Bus service and builds a completely new UI using libcosmic.
+
+## Architecture
+
+```
+┌─────────────────────────────────────────────────────────────────┐
+│  COSMIC Connect Applet (Rust)                                   │
+│  ├── cosmic-applet-connect/  (UI layer - libcosmic)            │
+│  └── kdeconnect-dbus/        (D-Bus client - zbus)             │
+└──────────────────────┬──────────────────────────────────────────┘
+                       │ D-Bus (org.kde.kdeconnect.*)
+                       ▼
+┌─────────────────────────────────────────────────────────────────┐
+│  kdeconnectd (KDE Connect daemon)                               │
+│  - Installed via system package (apt install kdeconnect)        │
+│  - Handles: device discovery, encryption, pairing, protocols    │
+└──────────────────────┬──────────────────────────────────────────┘
+                       │ TCP/UDP/Bluetooth
+                       ▼
+┌─────────────────────────────────────────────────────────────────┐
+│  Android Phone (KDE Connect app from Play Store/F-Droid)        │
+└─────────────────────────────────────────────────────────────────┘
+```
+
+### Design Decisions
+
+1. **KDE Connect as D-Bus Service**: Use the system-installed kdeconnectd daemon. Do not embed, fork, or modify KDE Connect source code.
+
+2. **Complete UI Replacement**: Build all user-facing UI in libcosmic. The KDE Connect Qt/QML apps are not used.
+
+3. **Separate D-Bus Crate**: Isolate D-Bus interface code in `kdeconnect-dbus/` crate for clean separation and potential reuse.
+
+4. **libcosmic as Dependency**: Use libcosmic via Cargo dependency, not as a submodule.
+
+## Project Structure
+
+```
+cosmic-connect-applet/
+├── CLAUDE.md                     # This file
+├── Cargo.toml                    # Workspace root
+├── Cargo.lock
+├── rust-toolchain.toml           # Pin Rust version
+├── justfile                      # Build automation (includes install/uninstall)
+│
+├── data/                         # Desktop entry for applet registration
+│   └── com.github.cosmic-connect-applet.desktop
+│
+├── cosmic-applet-connect/        # Main applet crate
+│   ├── Cargo.toml
+│   ├── i18n.toml                # Fluent localization config
+│   ├── i18n/                    # Translation files
+│   │   └── en/                  # English translations
+│   │       └── cosmic-applet-connect.ftl
+│   └── src/
+│       ├── main.rs              # Entry point
+│       ├── app.rs               # Panel applet state & logic
+│       ├── config.rs            # User preferences
+│       ├── i18n.rs              # Localization module with fl!() macro
+│       └── ui/
+│           ├── mod.rs
+│           ├── device_list.rs   # Device listing view
+│           ├── device_page.rs   # Individual device view
+│           └── widgets/         # Reusable UI components
+│
+├── kdeconnect-dbus/              # D-Bus interface crate
+│   ├── Cargo.toml
+│   └── src/
+│       ├── lib.rs               # Crate root, exports proxies
+│       ├── error.rs             # Error types
+│       ├── daemon.rs            # org.kde.kdeconnect.daemon proxy
+│       ├── device.rs            # Device interface proxy
+│       ├── contacts.rs          # Contact lookup from synced vCards
+│       └── plugins/             # Per-plugin D-Bus proxies
+│           ├── mod.rs
+│           ├── battery.rs       # Battery status plugin
+│           ├── clipboard.rs     # Clipboard sync plugin
+│           ├── mprisremote.rs   # Media player remote control plugin
+│           ├── notifications.rs # Notifications plugin
+│           ├── ping.rs          # Ping plugin
+│           ├── share.rs         # File/URL sharing plugin
+│           └── sms.rs           # SMS/conversations plugin
+│
+├── docs/                         # Additional documentation
+│   ├── CHANGELOG.md             # Development history
+│   └── DBUS.md                  # D-Bus testing commands reference
+│
+└── reference/                    # Reference material (gitignored)
+    └── kdeconnect-kde/          # KDE Connect source clone
+```
+
+## Technology Stack
+
+- **Language**: Rust (edition 2021)
+- **UI Framework**: libcosmic (System76's COSMIC toolkit, built on Iced)
+- **D-Bus Client**: zbus with tokio async runtime
+- **Backend**: kdeconnectd (system package)
+
+## Build Commands
+
+```bash
+# Build all crates
+cargo build
+
+# Build release
+cargo build --release
+
+# Run as panel applet (requires COSMIC desktop)
+cargo run -p cosmic-applet-connect
+
+# Run tests
+cargo test
+
+# Check formatting
+cargo fmt --check
+
+# Run clippy lints
+cargo clippy
+
+# Install applet to system (for panel testing)
+just install
+
+# Uninstall applet
+just uninstall
+```
+
+## Development & Testing Workflow
+
+### Applet Registration
+
+COSMIC discovers panel applets through `.desktop` files with special keys:
+
+```ini
+[Desktop Entry]
+Name=Connect
+Type=Application
+Exec=cosmic-applet-connect
+Icon=phone-symbolic
+NoDisplay=true
+X-CosmicApplet=true
+X-CosmicHoverPopup=Auto
+```
+
+Key fields:
+- `X-CosmicApplet=true` - Identifies this as a panel applet (required)
+- `X-CosmicHoverPopup=Auto` - Controls popup behavior on hover
+- `NoDisplay=true` - Hides from application launcher (applets aren't standalone apps)
+
+### Installation Workflow
+
+```bash
+# 1. Build release version
+cargo build --release
+
+# 2. Install to system (copies binary and .desktop file)
+sudo just install
+
+# 3. Add applet to panel
+#    Open: Settings > Desktop > Panel > Add Widget
+#    Find "Connect" in the list and add it
+
+# 4. After code changes, rebuild and reinstall
+cargo build --release && sudo just install
+
+# 5. Restart panel to load updated applet
+#    Either: Log out and back in
+#    Or: killall cosmic-panel (it auto-restarts)
+```
+
+### Development Tips
+
+**Testing Changes:**
+- Build release and install: `cargo build --release && sudo just install`
+- Restart panel: `killall cosmic-panel`
+- Panel auto-restarts and loads the updated applet
+
+**Debug Logging:**
+```bash
+# View panel applet logs (applet runs as part of cosmic-panel)
+journalctl --user -f | grep cosmic-applet-connect
+```
+
+### Uninstallation
+
+```bash
+# Remove from system
+sudo just uninstall
+
+# The applet will disappear from panel on next restart
+```
+
+## Dependencies
+
+### System Requirements
+- KDE Connect daemon: `sudo apt install kdeconnect`
+- Rust toolchain: Install via rustup
+- COSMIC desktop environment
+
+### Key Cargo Dependencies
+- `libcosmic` - COSMIC UI toolkit
+- `zbus` - D-Bus client library
+- `tokio` - Async runtime
+- `serde` / `serde_json` - Serialization
+- `chrono` - Date/time formatting
+- `dirs` - Platform-specific directory paths
+- `rfd` - Native file dialogs
+- `i18n-embed` / `i18n-embed-fl` - Fluent localization system
+- `rust-embed` - Embed translation files at compile time
+
+## D-Bus Interface Reference
+
+KDE Connect exposes these key D-Bus interfaces:
+
+| Interface | Path | Purpose |
+|-----------|------|---------|
+| `org.kde.kdeconnect.daemon` | `/modules/kdeconnect` | Device discovery, announcements |
+| `org.kde.kdeconnect.device` | `/modules/kdeconnect/devices/<id>` | Per-device operations, pairing |
+| `org.kde.kdeconnect.device.battery` | (same + /battery) | Battery status (charge, isCharging) |
+| `org.kde.kdeconnect.device.clipboard` | (same + /clipboard) | Clipboard sync |
+| `org.kde.kdeconnect.device.mprisremote` | (same + /mprisremote) | Media player control (play, pause, volume) |
+| `org.kde.kdeconnect.device.ping` | (same + /ping) | Send ping to device |
+| `org.kde.kdeconnect.device.notifications` | (same + /notifications) | List active notifications |
+| `org.kde.kdeconnect.device.notifications.notification` | (same + /notifications/<id>) | Individual notification details |
+| `org.kde.kdeconnect.device.share` | (same + /share) | File/URL sharing |
+| `org.kde.kdeconnect.device.sms` | (same + /sms) | Request SMS conversations |
+| `org.kde.kdeconnect.device.conversations` | `/modules/kdeconnect/devices/<id>` | SMS conversation data and signals |
+
+### D-Bus Property Naming
+
+KDE Connect uses camelCase for D-Bus property names (e.g., `isCharging`, `isPairRequested`). When using zbus, explicitly specify property names with the `#[zbus(property, name = "...")]` attribute to avoid case mismatch issues:
+
+```rust
+#[zbus(property, name = "isCharging")]
+fn is_charging(&self) -> zbus::Result<bool>;
+```
+
+For D-Bus testing commands, see `docs/DBUS.md`.
+
+## Code Style
+
+- Follow Rust standard conventions (rustfmt)
+- Use `clippy` for linting
+- Prefer explicit error handling over `.unwrap()` in production code
+- Document public APIs with rustdoc comments
+
+## Internationalization (i18n)
+
+The applet uses the Fluent localization system following COSMIC app patterns. **All user-visible text must use the `fl!()` macro** instead of hardcoded strings.
+
+### File Structure
+
+```
+cosmic-applet-connect/
+├── i18n.toml                           # Fluent configuration
+├── i18n/
+│   └── en/
+│       └── cosmic-applet-connect.ftl   # English translations
+└── src/
+    └── i18n.rs                         # fl!() macro and initialization
+```
+
+### Using the fl!() Macro
+
+**Always use `fl!()` for UI text - never use hardcoded strings:**
+
+```rust
+use crate::fl;
+
+// Simple translation
+text(fl!("devices"))
+
+// Translation with arguments
+text(fl!("battery-level", level = battery_percent))
+
+// Button labels
+widget::button::standard(fl!("send-ping"))
+```
+
+### Translation File Format (Fluent)
+
+Translations are defined in `.ftl` files using Fluent syntax:
+
+```ftl
+# Simple messages
+devices = Devices
+send-ping = Send Ping
+loading = Loading...
+
+# Messages with variables
+battery-level = { $level }%
+messages-title = Messages - { $device }
+```
+
+### Adding New Translations
+
+1. Add the message key and English text to `i18n/en/cosmic-applet-connect.ftl`
+2. Use `fl!("message-key")` in code
+3. For new languages, create `i18n/<lang>/cosmic-applet-connect.ftl` (e.g., `i18n/de/`, `i18n/es/`)
+
+### Important: Lifetime Handling with fl!()
+
+The `fl!()` macro returns an owned `String`, not a `&'static str`. This affects how you use it with widgets:
+
+**For text widgets and buttons** - pass directly (they accept owned strings):
+```rust
+text(fl!("label"))
+widget::button::standard(fl!("button-text"))
+```
+
+**For text_input placeholders** - pass directly without `&` (converts to `Cow::Owned`):
+```rust
+// Correct - passes owned String
+widget::text_input(fl!("placeholder"), &self.input_value)
+
+// Incorrect - creates temporary reference that won't live long enough
+widget::text_input(&fl!("placeholder"), &self.input_value)  // Won't compile!
+```
+
+**For fallback values with unwrap_or** - pre-compute the default:
+```rust
+// Correct - default_name lives for the scope
+let default_name = fl!("unknown");
+let name = self.device_name.as_deref().unwrap_or(&default_name);
+
+// Incorrect - temporary is dropped immediately
+let name = self.device_name.as_deref().unwrap_or(&fl!("unknown"));  // Won't compile!
+```
+
+### Locale Detection
+
+The system automatically detects the user's locale on startup via `i18n_embed::DesktopLanguageRequester`. No manual configuration is needed.
+
+## Configuration System
+
+The applet uses COSMIC's configuration system (`cosmic_config`) for persistent settings.
+
+### Config Location
+
+Settings are stored in `~/.config/cosmic/com.github.cosmic-connect-applet/v2/`
+
+### Config Struct
+
+```rust
+#[derive(Debug, Clone, Serialize, Deserialize, CosmicConfigEntry, PartialEq, Eq)]
+#[version = 2]
+pub struct Config {
+    pub show_battery_percentage: bool,       // Show battery % in device list
+    pub show_offline_devices: bool,          // Show paired but offline devices
+    pub forward_notifications: bool,         // Enable desktop notifications
+    pub messages_per_page: u32,              // SMS messages to load per request
+    pub sms_notifications: bool,             // Enable SMS desktop notifications
+    pub sms_notification_show_content: bool, // Show message content (privacy)
+    pub sms_notification_show_sender: bool,  // Show sender name (privacy)
+}
+```
+
+### Usage Pattern
+
+```rust
+// Load on startup
+let config = Config::load();
+
+// Save when settings change
+if let Err(err) = self.config.save() {
+    tracing::error!(?err, "Failed to save config");
+}
+
+// Watch for external changes via subscription
+self.core.watch_config::<Config>(crate::config::APP_ID)
+    .map(|update| Message::ConfigChanged(update.config))
+```
+
+## libcosmic Patterns
+
+### Async Tasks
+Use `Task::perform` with `cosmic::Action::App` wrapper for async operations:
+
+```rust
+cosmic::app::Task::perform(
+    async { /* async work */ },
+    |result| cosmic::Action::App(Message::from(result)),
+)
+```
+
+### Popup Windows
+
+Use the standard COSMIC applet popup helpers for reliable toggle behavior:
+
+```rust
+use cosmic::iced::platform_specific::shell::wayland::commands::popup::{destroy_popup, get_popup};
+
+// In your Message enum
+enum Message {
+    TogglePopup,
+    PopupClosed(window::Id),
+    // ...
+}
+
+// In update()
+Message::TogglePopup => {
+    return if let Some(popup_id) = self.popup.take() {
+        // Close existing popup
+        destroy_popup(popup_id)
+    } else {
+        // Open new popup
+        let new_id = window::Id::unique();
+        self.popup.replace(new_id);
+
+        let popup_settings = self.core.applet.get_popup_settings(
+            self.core.main_window_id().unwrap(),
+            new_id,
+            None,
+            None,
+            None,
+        );
+
+        get_popup(popup_settings)
+    };
+}
+
+Message::PopupClosed(id) => {
+    if self.popup == Some(id) {
+        self.popup = None;
+    }
+}
+```
+
+**Important:** Use `destroy_popup()` and `get_popup()` helpers instead of manual runtime actions. The manual approach can cause issues where clicking the panel icon to close the popup prevents reopening it.
+
+### View Lifetimes
+Use explicit lifetime annotations in view functions:
+
+```rust
+fn view(&self) -> Element<'_, Self::Message>
+fn view_window(&self, _id: window::Id) -> Element<'_, Self::Message>
+```
+
+### Popup Width Management
+
+The applet uses two popup widths depending on the view:
+
+```rust
+const DEFAULT_POPUP_WIDTH: f32 = 360.0;  // Standard libcosmic width
+const WIDE_POPUP_WIDTH: f32 = 450.0;     // For SMS/media views
+```
+
+Views using **wide popup** (450px):
+- `ConversationList` - SMS conversation list
+- `MessageThread` - SMS message thread
+- `NewMessage` - Compose new SMS
+- `MediaControls` - Media player controls
+
+Views using **default popup** (360px):
+- `DeviceList` - Main device list
+- `DevicePage` - Individual device view
+- `Settings` - Settings panel
+- `SendTo` - Send to device submenu
+
+The `popup_container()` method takes a width parameter:
+
+```rust
+fn popup_container<'a>(&self, content: impl Into<Element<'a, Message>>, width: f32) -> Element<'a, Message>
+```
+
+## UI Navigation and View Modes
+
+### ViewMode Enum
+
+The applet uses a `ViewMode` enum to track the current view:
+
+```rust
+pub enum ViewMode {
+    DeviceList,       // Main device list
+    DevicePage,       // Individual device details
+    SendTo,           // "Send to device" submenu
+    ConversationList, // SMS conversations
+    MessageThread,    // SMS message thread
+    NewMessage,       // Compose new SMS
+    Settings,         // Settings panel
+    MediaControls,    // Media player controls
+}
+```
+
+### Device Page Layout
+
+When viewing a connected device, the page is organized as:
+
+1. **Header** - Back button, device icon, name, type, status, battery
+2. **Actions** (clickable list items with chevrons):
+   - SMS Messages → Opens ConversationList
+   - Send to [device] → Opens SendTo submenu
+   - Media Controls → Opens MediaControls
+3. **Pairing section** - Pair/unpair buttons based on state
+4. **Notifications section** - List of device notifications (if any)
+
+### SendTo Submenu
+
+The "Send to [device]" submenu consolidates sending actions:
+
+1. **Back button** - Returns to device page
+2. **Share file** - Opens file picker
+3. **Send Clipboard** - Sends current clipboard contents
+4. **Send Ping** - Sends ping to device
+5. **Divider**
+6. **Share text** - Text input with Send button
+
+### Clickable List Item Pattern
+
+Actions on the device page use a clickable list item style (matching the device list):
+
+```rust
+let row = row![
+    icon::from_name("icon-name").size(24),
+    text(fl!("label")).size(14),
+    widget::horizontal_space(),
+    icon::from_name("go-next-symbolic").size(16),  // Chevron
+]
+.spacing(12)
+.align_y(Alignment::Center);
+
+widget::button::custom(
+    widget::container(row).padding(8).width(Length::Fill),
+)
+.class(cosmic::theme::Button::Text)
+.on_press(Message::SomeAction)
+.width(Length::Fill)
+```
+
+## D-Bus Signal Subscription
+
+To receive real-time updates from KDE Connect (e.g., pairing state changes), subscribe to D-Bus signals using match rules:
+
+```rust
+use zbus::fdo::DBusProxy;
+
+// Add match rule for KDE Connect signals
+let dbus_proxy = DBusProxy::new(&conn).await?;
+let rule = zbus::MatchRule::builder()
+    .msg_type(zbus::message::Type::Signal)
+    .sender("org.kde.kdeconnect.daemon")
+    .map(|b| b.build())?;
+dbus_proxy.add_match_rule(rule).await?;
+
+// Create message stream and filter for relevant signals
+let stream = zbus::MessageStream::from(&conn);
+```
+
+Without explicit match rules, D-Bus signals may not be delivered to the application.
+
+## SMS Implementation Notes
+
+### Signal-Based Message Fetching
+
+SMS messages are fetched using D-Bus signals rather than polling. The pattern is:
+
+1. Subscribe to `conversationUpdated` and `conversationLoaded` signals
+2. Call `requestConversation(thread_id, start, count)` to request messages
+3. Collect messages from `conversationUpdated` signals as they arrive
+4. Stop collecting when `conversationLoaded` signal is received
+
+```rust
+// Subscribe to signals before requesting
+let mut updated_stream = conversations_proxy.receive_conversation_updated().await?;
+let mut loaded_stream = conversations_proxy.receive_conversation_loaded().await?;
+
+// Request messages
+conversations_proxy.request_conversation(thread_id, 0, 20).await?;
+
+// Collect from signals using tokio::select!
+loop {
+    tokio::select! {
+        Some(signal) = updated_stream.next() => {
+            // Parse and store message
+        }
+        Some(signal) = loaded_stream.next() => {
+            // Done loading, break
+            break;
+        }
+    }
+}
+```
+
+### Contact Name Resolution
+
+KDE Connect syncs contacts as vCard files to `~/.local/share/kpeoplevcard/kdeconnect-{device-id}/`. The `ContactLookup` struct parses these files and provides phone number to name mapping:
+
+```rust
+let contacts = ContactLookup::load_for_device(&device_id);
+let name = contacts.get_name_or_number("+15551234567"); // Returns "John Doe" or the number
+```
+
+### Message Type Constants
+
+Android SMS type values (from `msg.message_type`):
+- `1` = MESSAGE_TYPE_INBOX (received)
+- `2` = MESSAGE_TYPE_SENT
+- `3` = MESSAGE_TYPE_DRAFT
+- `4` = MESSAGE_TYPE_OUTBOX
+- `5` = MESSAGE_TYPE_FAILED
+- `6` = MESSAGE_TYPE_QUEUED
+
+**Important: Message Type Inversion**
+
+The data received from KDE Connect appears to have inverted message types. In practice:
+- `MessageType::Sent` (value 2) actually represents **received** messages
+- `MessageType::Inbox` (value 1) actually represents **sent** messages
+
+This inversion is handled in the UI code by checking for `MessageType::Sent` when determining if a message was received:
+
+```rust
+// Note: message_type logic appears inverted from KDE Connect data
+// MessageType::Sent actually means received, Inbox means sent
+let is_received = msg.message_type == MessageType::Sent;
+```
+
+The code in `app.rs` uses this inverted logic with comments explaining the situation.
+
+## SMS Desktop Notifications
+
+The applet shows desktop notifications when new SMS messages are received.
+
+### Implementation
+
+1. **D-Bus Signal Subscription**: A separate subscription (`sms_notification_subscription`) listens for `conversationUpdated` signals from `org.kde.kdeconnect.device.conversations`.
+
+2. **Message Filtering**: Only incoming messages are notified (MessageType::Sent due to the type inversion described above).
+
+3. **Deduplication**: A `last_seen_sms: HashMap<i64, i64>` tracks the latest seen timestamp per thread_id to prevent duplicate notifications.
+
+4. **Contact Resolution**: Sender names are resolved via `ContactLookup` using synced vCard files.
+
+5. **Privacy Settings**: Users can control notification content:
+   - `sms_notifications` - Master toggle for SMS notifications
+   - `sms_notification_show_sender` - Show/hide sender name
+   - `sms_notification_show_content` - Show/hide message preview
+
+### Notification Display
+
+Notifications are shown using `notify-rust` (freedesktop notification protocol):
+
+```rust
+notify_rust::Notification::new()
+    .summary(&summary)  // "New SMS" or "New SMS from {name}"
+    .body(&body)        // Message content or "Message received"
+    .icon("phone-symbolic")
+    .appname("COSMIC Connect")
+    .show()
+```
+
+### Subscription Lifecycle
+
+The SMS notification subscription is active when:
+- `config.sms_notifications` is enabled
+- At least one device is both reachable AND paired
+
+The subscription automatically reconnects on D-Bus disconnection.
+
+## Media Controls Implementation
+
+### D-Bus Interface
+
+The MPRIS Remote plugin uses a single `sendAction` method for all playback controls, not individual methods:
+
+```rust
+// Correct - use sendAction with action name
+proxy.send_action("PlayPause").await?;
+proxy.send_action("Next").await?;
+proxy.send_action("Previous").await?;
+
+// Incorrect - these methods don't exist on the D-Bus interface
+// proxy.play_pause().await?;  // Won't work
+// proxy.next().await?;        // Won't work
+```
+
+Valid action strings: `"Play"`, `"Pause"`, `"PlayPause"`, `"Stop"`, `"Next"`, `"Previous"`
+
+### Available Properties
+
+The mprisremote interface exposes these readable properties:
+- `playerList` - List of available media players on the device
+- `player` - Currently selected player name
+- `isPlaying` - Whether playback is active
+- `volume` - Current volume (0-100)
+- `length` - Track length in milliseconds
+- `position` - Current playback position in milliseconds
+- `title`, `artist`, `album` - Current track metadata
+- `canSeek` - Whether the player supports seeking
+
+Writable properties (set via D-Bus property setters):
+- `volume` - Set playback volume
+- `position` - Seek to position
+- `player` - Select active player
+
+**Note:** `canGoNext`, `canGoPrevious`, `canPlay`, `canPause` are per-player properties not exposed on the main interface. The UI defaults these to `true` and lets the phone handle unsupported actions.
+
+## Known Issues
+
+### Conversation List Scroll Position
+
+When returning from viewing a message thread to the conversation list, the scroll position defaults to the bottom (oldest conversations) instead of the top (most recent). Multiple approaches were attempted without success:
+
+- `scrollable::snap_to` with `RelativeOffset { x: 0.0, y: 0.0 }`
+- `scrollable::scroll_to` with `AbsoluteOffset { x: 0.0, y: 0.0 }`
+- Changing scrollable ID via a key counter to force widget recreation
+- Setting explicit `direction` with `Scrollbar::new().anchor(Anchor::Start)`
+
+The issue appears to be related to how iced/libcosmic preserves scrollable widget state across view changes. The message thread scroll-to-bottom (using `RelativeOffset::END`) works correctly, suggesting the problem is specific to scroll-to-top behavior or timing of when the scroll command executes relative to view rendering.
+
+Potential solutions to investigate:
+- Use a subscription to trigger scroll after view renders
+- Restructure the view to not reuse the scrollable widget
+- Store and restore scroll position manually
+- File an issue with libcosmic/iced if this is a bug
+
+## Future Enhancements
+
+Potential features to implement in future development:
+
+### Media Controls Enhancements
+- Album art display (KDE Connect supports sending album art as binary payload)
+- Seek slider for playback position control
+- Loop and shuffle toggle controls
+
+### Additional KDE Connect Plugins
+- **Find My Phone** - Trigger phone to ring for locating it
+- **Run Commands** - Execute predefined commands on the phone
+- **Mousepad/Keyboard Input** - Send mouse movements and keyboard input to phone
+- **Telephony** - Show incoming call notifications, mute ringer
+- **Presenter** - Control presentations remotely
+- **Screen Sharing** - View phone screen (if supported)
+
+### SMS Notification Enhancements
+- Click-to-open conversation from notification (requires async channel communication with notify-rust callback)
+- Quick reply action from notification (if COSMIC supports notification actions)
+- Notification sound customization
+
+### UI/UX Improvements
+- Device icons based on device type (phone, tablet, laptop)
+- Dark/light theme following system preference
+- Keyboard shortcuts for common actions
+- System tray integration when not using panel applet
+
+### Technical Improvements
+- Connection status indicator with reconnection handling
+- Plugin availability detection (show/hide buttons based on device capabilities)
+- Better error messages and recovery suggestions
+- Investigate message type inversion root cause (currently worked around in UI code)
+
+## Reference Material
+
+The `reference/kdeconnect-kde/` directory contains a clone of KDE Connect source for reference. Key files:
+- `dbusinterfaces/*.xml` - D-Bus interface definitions
+- `cli/kdeconnect-cli.cpp` - Example D-Bus usage patterns
+- `plugins/*/` - Plugin implementations showing packet types
+
+This directory is gitignored and not part of the build.
+
+## External Resources
+
+- [COSMIC Applets Repository](https://github.com/pop-os/cosmic-applets) - Reference implementations
+- [libcosmic](https://github.com/pop-os/libcosmic) - UI toolkit
+- [zbus Book](https://dbus2.github.io/zbus/) - D-Bus client documentation
+- [KDE Connect Protocol](https://invent.kde.org/network/kdeconnect-kde) - Protocol reference

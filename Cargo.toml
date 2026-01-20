@@ -1,0 +1,53 @@
+[workspace]
+resolver = "2"
+members = [
+    "cosmic-applet-connect",
+    "kdeconnect-dbus",
+]
+
+[workspace.package]
+version = "0.1.0"
+edition = "2021"
+license = "GPL-3.0"
+rust-version = "1.80"
+
+[workspace.dependencies]
+# UI Framework
+libcosmic = { git = "https://github.com/pop-os/libcosmic", default-features = false, features = ["applet", "tokio", "wayland"] }
+cosmic-panel-config = { git = "https://github.com/pop-os/cosmic-panel" }
+
+# D-Bus
+zbus = { version = "5", default-features = false, features = ["tokio"] }
+
+# Async runtime
+tokio = { version = "1", features = ["full"] }
+futures-util = "0.3"
+
+# Serialization
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+
+# Error handling
+thiserror = "2"
+anyhow = "1"
+
+# Logging
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+
+# Internationalization
+i18n-embed = { version = "0.15", features = ["fluent-system", "desktop-requester"] }
+i18n-embed-fl = "0.9"
+rust-embed = "8"
+
+# Date/time
+chrono = "0.4"
+
+# File dialogs
+rfd = { version = "0.15", default-features = false, features = ["gtk3"] }
+
+# Desktop notifications
+notify-rust = "4"
+
+# Internal crates
+kdeconnect-dbus = { path = "kdeconnect-dbus" }
