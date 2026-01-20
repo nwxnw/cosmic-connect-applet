@@ -676,6 +676,64 @@ Individual message threads use a similar pattern:
 3. Collect messages from `conversationUpdated` signals as they arrive
 4. Stop collecting when `conversationLoaded` signal is received for that thread
 
+### SMS Loading States
+
+The applet uses a phase-based enum to track SMS loading progress, providing more informative UI feedback than simple boolean flags.
+
+```rust
+/// Loading state for SMS operations with phase tracking.
+#[derive(Debug, Clone, Default, PartialEq)]
+pub enum SmsLoadingState {
+    #[default]
+    Idle,
+    /// Loading conversations from device
+    LoadingConversations(LoadingPhase),
+    /// Loading messages for a specific thread
+    LoadingMessages(LoadingPhase),
+    /// Loading older messages (pagination)
+    LoadingMoreMessages,
+}
+
+/// Phases of a loading operation.
+#[derive(Debug, Clone, Default, PartialEq)]
+pub enum LoadingPhase {
+    /// Setting up D-Bus connection and signal streams
+    #[default]
+    Connecting,
+    /// Request sent to phone, waiting for response
+    Requesting,
+}
+```
+
+**Phase transitions:**
+1. `Idle` → `LoadingConversations(Connecting)` - Opening SMS view without cache
+2. `LoadingConversations(Connecting)` → `LoadingConversations(Requesting)` - D-Bus streams ready, request sent
+3. `LoadingConversations(Requesting)` → `Idle` - Data received
+4. `Idle` → `LoadingConversations(Requesting)` - Opening SMS view with cache (skip Connecting)
+
+**Translation strings:**
+```ftl
+loading-connecting = Connecting...
+loading-requesting = Fetching from phone...
+```
+
+Views use helper functions to check loading state:
+```rust
+fn is_loading_conversations(state: &SmsLoadingState) -> bool {
+    matches!(state, SmsLoadingState::LoadingConversations(_))
+}
+
+fn conversation_loading_text(state: &SmsLoadingState) -> String {
+    match state {
+        SmsLoadingState::LoadingConversations(phase) => match phase {
+            LoadingPhase::Connecting => fl!("loading-connecting"),
+            LoadingPhase::Requesting => fl!("loading-requesting"),
+        },
+        _ => fl!("loading-conversations"),
+    }
+}
+```
+
 ### Conversation List Caching
 
 The conversation list is cached in memory to provide instant display when returning to the SMS view.
@@ -693,10 +751,11 @@ let same_device = self.sms_device_id.as_ref() == Some(&device_id);
 let has_cache = same_device && !self.conversations.is_empty();
 
 if has_cache {
-    self.sms_loading = false;  // Show cached data immediately
-    // Trigger background refresh
+    // Show cached data immediately, fetch in background
+    self.sms_loading_state = SmsLoadingState::LoadingConversations(LoadingPhase::Requesting);
 } else {
-    self.sms_loading = true;   // Show loading spinner
+    // No cache, start from Connecting phase
+    self.sms_loading_state = SmsLoadingState::LoadingConversations(LoadingPhase::Connecting);
     self.conversations.clear();
 }
 
@@ -708,7 +767,21 @@ Message::CloseSmsView => {
 }
 ```
 
-**Message cache:** Individual message threads are also cached in `message_cache: HashMap<i64, Vec<SmsMessage>>`. When opening a conversation, cached messages display immediately while a background refresh runs.
+**Optimistic updates:** When the user sends a reply in a conversation, the conversation list is immediately updated without waiting for a refresh from the phone:
+
+```rust
+// In SmsSendResult handler
+if let Some(conv) = self.conversations.iter_mut().find(|c| c.thread_id == thread_id) {
+    conv.last_message = sent_body.clone();
+    conv.timestamp = now_ms;
+}
+// Re-sort conversations by timestamp (newest first)
+self.conversations.sort_by(|a, b| b.timestamp.cmp(&a.timestamp));
+```
+
+This ensures the conversation list reflects the sent message immediately when the user navigates back.
+
+**Message cache:** Individual message threads are also cached in an LRU cache (`message_cache: LruCache<i64, Vec<SmsMessage>>`) with a configurable capacity. When opening a conversation, cached messages display immediately while a background refresh runs.
 
 ### Contact Name Resolution
 
