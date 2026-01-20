@@ -53,7 +53,7 @@ Personal note: This project relied on Claude Code as a senior developer. My prog
 
 3. **Install to system:**
    ```bash
-   sudo just install
+   sudo just install-only
    ```
 
 4. **Add to panel:**
