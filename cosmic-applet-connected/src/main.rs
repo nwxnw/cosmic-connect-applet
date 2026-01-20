@@ -5,8 +5,14 @@
 
 mod app;
 mod config;
+mod device;
 mod i18n;
+mod media;
+mod notifications;
+mod sms;
+mod subscriptions;
 mod ui;
+mod views;
 
 use app::ConnectApplet;
 
