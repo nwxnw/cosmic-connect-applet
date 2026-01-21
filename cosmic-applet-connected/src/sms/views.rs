@@ -193,7 +193,6 @@ pub struct MessageThreadParams<'a> {
     pub loading_state: &'a SmsLoadingState,
     pub sms_compose_text: &'a str,
     pub sms_sending: bool,
-    pub messages_has_more: bool,
     /// Whether background sync is active (syncing messages from phone)
     pub sync_active: bool,
 }
@@ -256,41 +255,22 @@ pub fn view_message_thread(params: MessageThreadParams<'_>) -> Element<'_, Messa
 
         let mut msg_column = column![].spacing(12).padding([8, 12]);
 
-        // Add "Load More" button at top if there are more messages
-        if params.messages_has_more {
-            let load_more_content: Element<Message> = if loading_more {
+        // Show loading indicator at top when fetching older messages
+        if loading_more {
+            let loading_indicator: Element<Message> = widget::container(
                 row![
                     widget::icon::from_name("process-working-symbolic").size(16),
                     text(fl!("loading-older")).size(14),
                 ]
                 .spacing(8)
-                .align_y(Alignment::Center)
-                .into()
-            } else {
-                row![
-                    widget::icon::from_name("go-up-symbolic").size(16),
-                    text(fl!("load-older-messages")).size(14),
-                ]
-                .spacing(8)
-                .align_y(Alignment::Center)
-                .into()
-            };
-
-            let load_more_button = widget::button::custom(
-                widget::container(load_more_content)
-                    .padding(8)
-                    .width(Length::Fill)
-                    .align_x(Alignment::Center),
+                .align_y(Alignment::Center),
             )
-            .class(cosmic::theme::Button::Text)
-            .on_press_maybe(if loading_more {
-                None
-            } else {
-                Some(Message::LoadMoreMessages)
-            })
-            .width(Length::Fill);
+            .padding(8)
+            .width(Length::Fill)
+            .align_x(Alignment::Center)
+            .into();
 
-            msg_column = msg_column.push(load_more_button);
+            msg_column = msg_column.push(loading_indicator);
             msg_column = msg_column.push(widget::divider::horizontal::default());
         }
 

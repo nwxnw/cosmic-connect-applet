@@ -100,6 +100,66 @@ Message::ConversationMessageReceived { thread_id, message } => {
 - Scroll stays anchored to newest messages during loading
 - No arbitrary timeouts - completion signaled by `conversationLoaded`
 
+### Scroll-Based Lazy Loading (Older Messages)
+
+When viewing a conversation, older messages load automatically as the user scrolls up:
+
+```
+User scrolls near top (< 100px) → MessageThreadScrolled
+                                          ↓
+                    Store scroll position for later adjustment
+                                          ↓
+                    fetch_older_messages_async(offset, count)
+                                          ↓
+                    OlderMessagesLoaded → Prepend messages
+                                          ↓
+                    Calculate new scroll position → snap_to()
+```
+
+**Key implementation details:**
+
+1. `MessageThreadScrolled` in `app.rs` triggers when user scrolls within 100px of top
+2. Scroll offset and content height stored before loading (for position preservation)
+3. `fetch_older_messages_async` requests messages with pagination offset
+4. When messages arrive, they're prepended and scroll position is adjusted
+
+```rust
+// In app.rs - scroll-based loading trigger
+Message::MessageThreadScrolled(viewport) => {
+    const PREFETCH_THRESHOLD_PX: f32 = 100.0;
+    let scroll_offset = viewport.absolute_offset().y;
+
+    if scroll_offset < PREFETCH_THRESHOLD_PX
+        && self.messages_has_more
+        && !self.is_loading_more_messages()
+    {
+        // Store scroll state for position preservation
+        self.scroll_offset_before_load = Some(scroll_offset);
+        self.content_height_before_load = Some(viewport.content_bounds().height);
+
+        // Trigger async load
+        return Task::perform(fetch_older_messages_async(...), ...);
+    }
+}
+```
+
+**Scroll position preservation:** When older messages are prepended, the scroll position is adjusted so the user stays at the same messages they were viewing:
+
+```rust
+// In OlderMessagesLoaded handler
+let prepended_height = prepended_count as f32 * ESTIMATED_MSG_HEIGHT;
+let new_content_height = old_height + prepended_height;
+let new_offset = old_offset + prepended_height;
+let relative_y = (new_offset / new_content_height).clamp(0.0, 1.0);
+
+return scrollable::snap_to(
+    widget::Id::new("message-thread"),
+    scrollable::RelativeOffset { x: 0.0, y: relative_y },
+);
+```
+
+**Loading indicator:** A subtle "Loading..." indicator appears at the top while fetching, but no manual button is required - loading is entirely scroll-driven.
+
 ## Loading States
 
 The applet uses a phase-based enum to track SMS loading progress:
@@ -123,6 +183,8 @@ pub enum LoadingPhase {
 2. `LoadingConversations(Connecting)` → `LoadingConversations(Requesting)` - D-Bus ready
 3. `LoadingConversations(Requesting)` → `Idle` - Data received
 4. `Idle` → `LoadingConversations(Requesting)` - Opening with cache (skip Connecting)
+5. `Idle` → `LoadingMoreMessages` - User scrolls near top of message thread
+6. `LoadingMoreMessages` → `Idle` - Older messages received and prepended
 
 **Translation strings:**
 ```ftl

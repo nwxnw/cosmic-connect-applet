@@ -180,8 +180,6 @@ pub enum Message {
     SendNewMessage,
     /// New message send result
     NewMessageSendResult(Result<String, String>),
-    /// User clicked "Load More" button to load older messages
-    LoadMoreMessages,
     /// Older messages fetched successfully (thread_id, messages, has_more_heuristic, total_count)
     OlderMessagesLoaded(i64, Vec<SmsMessage>, bool, Option<u64>),
     /// Message thread scrolled - used for prefetching older messages
@@ -418,6 +416,10 @@ pub struct ConnectApplet {
     messages_loaded_count: u32,
     /// Whether more older messages are available
     messages_has_more: bool,
+    /// Scroll offset before loading older messages (for position preservation)
+    scroll_offset_before_load: Option<f32>,
+    /// Content height before loading older messages (for position preservation)
+    content_height_before_load: Option<f32>,
 
     // New message compose state
     /// Recipient input for new message
@@ -523,6 +525,8 @@ impl Application for ConnectApplet {
             // Message pagination state
             messages_loaded_count: 0,
             messages_has_more: true,
+            scroll_offset_before_load: None,
+            content_height_before_load: None,
             // New message state
             new_message_recipient: String::new(),
             new_message_body: String::new(),
@@ -1049,6 +1053,8 @@ impl Application for ConnectApplet {
                     // Reset pagination state
                     self.messages_loaded_count = 0;
                     self.messages_has_more = true;
+                    self.scroll_offset_before_load = None;
+                    self.content_height_before_load = None;
 
                     // Clear known message IDs for fresh deduplication
                     self.known_message_ids.clear();
@@ -1278,35 +1284,6 @@ impl Application for ConnectApplet {
                     }
                 }
             }
-            Message::LoadMoreMessages => {
-                // Guard: skip if already loading or no more messages
-                if self.is_loading_more_messages() || !self.messages_has_more {
-                    return cosmic::app::Task::none();
-                }
-
-                if let (Some(conn), Some(device_id), Some(thread_id)) = (
-                    &self.dbus_connection,
-                    &self.sms_device_id,
-                    self.current_thread_id,
-                ) {
-                    self.sms_loading_state = SmsLoadingState::LoadingMoreMessages;
-                    tracing::info!(
-                        "Loading more messages for thread {} from offset {}",
-                        thread_id,
-                        self.messages_loaded_count
-                    );
-                    return cosmic::app::Task::perform(
-                        fetch_older_messages_async(
-                            conn.clone(),
-                            device_id.clone(),
-                            thread_id,
-                            self.messages_loaded_count,
-                            self.config.messages_per_page,
-                        ),
-                        cosmic::Action::App,
-                    );
-                }
-            }
             Message::OlderMessagesLoaded(
                 thread_id,
                 older_msgs,
@@ -1320,9 +1297,10 @@ impl Application for ConnectApplet {
 
                 if self.current_thread_id == Some(thread_id) {
                     if !older_msgs.is_empty() {
+                        let prepended_count = older_msgs.len();
                         tracing::info!(
                             "Prepending {} older messages to thread {} (had {}, total: {:?})",
-                            older_msgs.len(),
+                            prepended_count,
                             thread_id,
                             self.messages.len(),
                             total_count
@@ -1345,10 +1323,40 @@ impl Application for ConnectApplet {
                             Some(total) => (self.messages.len() as u64) < total,
                             None => has_more_heuristic,
                         };
+
+                        // Calculate scroll adjustment to preserve user's position
+                        // When we prepend messages, the content shifts down. We need to
+                        // scroll down by the estimated height of the prepended content.
+                        if let (Some(old_offset), Some(old_height)) = (
+                            self.scroll_offset_before_load.take(),
+                            self.content_height_before_load.take(),
+                        ) {
+                            // Estimate prepended content height (avg ~70px per message)
+                            const ESTIMATED_MSG_HEIGHT: f32 = 70.0;
+                            let prepended_height = prepended_count as f32 * ESTIMATED_MSG_HEIGHT;
+                            let new_content_height = old_height + prepended_height;
+                            let new_offset = old_offset + prepended_height;
+
+                            // Calculate relative offset (0.0 = top, 1.0 = bottom)
+                            let relative_y = (new_offset / new_content_height).clamp(0.0, 1.0);
+
+                            tracing::debug!(
+                                "Scroll adjustment: old_offset={:.1}, prepended_height={:.1}, new_relative_y={:.3}",
+                                old_offset, prepended_height, relative_y
+                            );
+
+                            return scrollable::snap_to(
+                                widget::Id::new("message-thread"),
+                                scrollable::RelativeOffset { x: 0.0, y: relative_y },
+                            );
+                        }
                     } else {
                         tracing::info!("No older messages returned for thread {}", thread_id);
                         // No more messages available
                         self.messages_has_more = false;
+                        // Clear scroll state
+                        self.scroll_offset_before_load = None;
+                        self.content_height_before_load = None;
                     }
                 }
             }
@@ -1358,6 +1366,7 @@ impl Application for ConnectApplet {
                 const PREFETCH_THRESHOLD_PX: f32 = 100.0;
 
                 let scroll_offset = viewport.absolute_offset().y;
+                let content_height = viewport.content_bounds().height;
 
                 if scroll_offset < PREFETCH_THRESHOLD_PX
                     && self.messages_has_more
@@ -1365,9 +1374,14 @@ impl Application for ConnectApplet {
                     && !self.messages.is_empty()
                 {
                     tracing::debug!(
-                        "Prefetching older messages (scroll_y={:.1}px)",
-                        scroll_offset
+                        "Prefetching older messages (scroll_y={:.1}px, content_height={:.1}px)",
+                        scroll_offset,
+                        content_height
                     );
+
+                    // Store scroll state for position preservation after load
+                    self.scroll_offset_before_load = Some(scroll_offset);
+                    self.content_height_before_load = Some(content_height);
 
                     // Trigger loading older messages (same logic as LoadMoreMessages)
                     if let (Some(conn), Some(device_id), Some(thread_id)) = (
@@ -2198,7 +2212,6 @@ impl Application for ConnectApplet {
                 loading_state: &self.sms_loading_state,
                 sms_compose_text: &self.sms_compose_text,
                 sms_sending: self.sms_sending,
-                messages_has_more: self.messages_has_more,
                 sync_active: self.message_sync_active,
             }),
             ViewMode::NewMessage => view_new_message(NewMessageParams {
