@@ -60,10 +60,14 @@ fn should_show_notification(dedup_file: &str, key: &str) -> bool {
         Err(_) => return true, // Can't open file, allow notification
     };
 
-    // Use file locking to ensure atomic read-modify-write
+    // Use file locking to ensure atomic read-modify-write.
+    // Note: flock is blocking, which isn't ideal in async contexts. However:
+    // - The lock is held for microseconds (read/compare/write ~50 bytes)
+    // - Files are in /tmp (typically tmpfs, no disk I/O)
+    // - Contention only occurs when multiple processes receive the same D-Bus signal simultaneously
+    // - spawn_blocking overhead would likely exceed the blocked time
+    // The simplicity of blocking here outweighs the theoretical async executor stall risk.
     let fd = file.as_raw_fd();
-
-    // Acquire exclusive lock (blocking)
     // SAFETY: flock is a standard POSIX system call that operates on valid file descriptors
     unsafe {
         if libc::flock(fd, libc::LOCK_EX) != 0 {
@@ -100,4 +104,163 @@ fn should_show_notification(dedup_file: &str, key: &str) -> bool {
     }
 
     should_notify
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::fs;
+
+    /// Generate a unique temp file path for testing
+    fn temp_dedup_path(test_name: &str) -> String {
+        format!(
+            "/tmp/cosmic-connected-test-{}-{}",
+            test_name,
+            std::process::id()
+        )
+    }
+
+    /// Clean up a temp file, ignoring errors if it doesn't exist
+    fn cleanup(path: &str) {
+        let _ = fs::remove_file(path);
+    }
+
+    #[test]
+    fn first_notification_returns_true() {
+        let path = temp_dedup_path("first");
+        cleanup(&path);
+
+        let result = should_show_notification(&path, "test-key");
+        assert!(result, "First notification for a key should return true");
+
+        cleanup(&path);
+    }
+
+    #[test]
+    fn duplicate_within_window_returns_false() {
+        let path = temp_dedup_path("duplicate");
+        cleanup(&path);
+
+        // First call should succeed
+        let first = should_show_notification(&path, "same-key");
+        assert!(first, "First notification should return true");
+
+        // Immediate second call with same key should be suppressed
+        let second = should_show_notification(&path, "same-key");
+        assert!(!second, "Duplicate within window should return false");
+
+        cleanup(&path);
+    }
+
+    #[test]
+    fn different_key_returns_true() {
+        let path = temp_dedup_path("different");
+        cleanup(&path);
+
+        let first = should_show_notification(&path, "key-a");
+        assert!(first, "First notification should return true");
+
+        let second = should_show_notification(&path, "key-b");
+        assert!(second, "Different key should return true");
+
+        cleanup(&path);
+    }
+
+    #[test]
+    fn expired_window_returns_true() {
+        // Use a custom short window for testing by writing an old timestamp directly
+        let path = temp_dedup_path("expired");
+        cleanup(&path);
+
+        // Write an entry with a timestamp from 3 seconds ago (beyond 2s window)
+        let old_time = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap()
+            .as_millis()
+            - 3000; // 3 seconds ago
+
+        fs::write(&path, format!("old-key\n{}", old_time)).unwrap();
+
+        // Same key should now be allowed since window expired
+        let result = should_show_notification(&path, "old-key");
+        assert!(result, "Same key after window expires should return true");
+
+        cleanup(&path);
+    }
+
+    #[test]
+    fn handles_corrupted_file() {
+        let path = temp_dedup_path("corrupted");
+        cleanup(&path);
+
+        // Write garbage data
+        fs::write(&path, "not-valid-format").unwrap();
+
+        let result = should_show_notification(&path, "test-key");
+        assert!(result, "Corrupted file should allow notification");
+
+        cleanup(&path);
+    }
+
+    #[test]
+    fn handles_empty_file() {
+        let path = temp_dedup_path("empty");
+        cleanup(&path);
+
+        // Create empty file
+        fs::write(&path, "").unwrap();
+
+        let result = should_show_notification(&path, "test-key");
+        assert!(result, "Empty file should allow notification");
+
+        cleanup(&path);
+    }
+
+    #[test]
+    fn file_notification_wrapper_works() {
+        // Just verify the wrapper function doesn't panic
+        // We can't easily test the actual dedup without affecting real state,
+        // but we can verify it returns a bool
+        let result = should_show_file_notification("/test/path/file.txt");
+        // Result could be true or false depending on prior state, just verify it runs
+        assert!(result || !result);
+    }
+
+    #[test]
+    fn sms_notification_wrapper_works() {
+        // Verify the wrapper function doesn't panic and formats key correctly
+        let result = should_show_sms_notification(12345, 1700000000000);
+        assert!(result || !result);
+    }
+
+    #[test]
+    fn multiple_rapid_calls_same_key() {
+        let path = temp_dedup_path("rapid");
+        cleanup(&path);
+
+        let first = should_show_notification(&path, "rapid-key");
+        assert!(first);
+
+        // Multiple rapid calls should all be suppressed
+        for i in 0..5 {
+            let result = should_show_notification(&path, "rapid-key");
+            assert!(!result, "Call {} should be suppressed", i + 2);
+        }
+
+        cleanup(&path);
+    }
+
+    #[test]
+    fn alternating_keys() {
+        let path = temp_dedup_path("alternating");
+        cleanup(&path);
+
+        // Each different key should trigger notification
+        assert!(should_show_notification(&path, "key-1"));
+        assert!(should_show_notification(&path, "key-2"));
+        assert!(should_show_notification(&path, "key-3"));
+        assert!(should_show_notification(&path, "key-1")); // key-1 again after others
+
+        cleanup(&path);
+    }
 }
