@@ -14,13 +14,18 @@ use cosmic::Element;
 pub fn view_settings(config: &Config) -> Element<'_, Message> {
     let sp = cosmic::theme::spacing();
 
-    let back_btn = widget::button::text(fl!("back"))
-        .leading_icon(widget::icon::from_name("go-previous-symbolic").size(16))
-        .on_press(Message::ToggleSettings);
+    let header = applet::padded_control(
+        row![
+            widget::button::icon(widget::icon::from_name("go-previous-symbolic"))
+                .on_press(Message::ToggleSettings),
+            text::heading(fl!("settings")),
+        ]
+        .spacing(sp.space_xxs)
+        .align_y(Alignment::Center),
+    );
 
     // General section
     let general_section = settings::section()
-        .title(fl!("settings"))
         .add(
             settings::item::builder(fl!("settings-battery"))
                 .toggler(config.show_battery_percentage, move |_| {
@@ -57,12 +62,11 @@ pub fn view_settings(config: &Config) -> Element<'_, Message> {
 
     widget::container(
         widget::column::with_children(vec![
-            back_btn.into(),
+            header.into(),
             sections.into(),
             notif_nav_btn.into(),
         ])
-        .spacing(sp.space_xxs)
-        .padding(sp.space_s),
+        .spacing(sp.space_xxs),
     )
     .width(Length::Fill)
     .into()
@@ -166,19 +170,20 @@ pub fn view_notification_settings(config: &Config) -> Element<'_, Message> {
         timeout_section.into(),
     ]);
 
-    let header = row![
-        back_btn,
-        text::heading(fl!("notification-settings")),
-    ]
-    .spacing(sp.space_xxs)
-    .align_y(Alignment::Center);
+    let header = applet::padded_control(
+        row![
+            back_btn,
+            text::heading(fl!("notification-settings")),
+        ]
+        .spacing(sp.space_xxs)
+        .align_y(Alignment::Center),
+    );
 
     let content = widget::column::with_children(vec![
         header.into(),
         sections.into(),
     ])
-    .spacing(sp.space_xxs)
-    .padding(sp.space_s);
+    .spacing(sp.space_xxs);
 
     widget::container(widget::scrollable(content))
         .width(Length::Fill)

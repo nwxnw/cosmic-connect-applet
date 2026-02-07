@@ -90,13 +90,19 @@ pub fn view_conversation_list(params: ConversationListParams<'_>) -> Element<'_,
         );
     }
 
+    let new_msg_btn = widget::tooltip(
+        widget::button::icon(widget::icon::from_name("list-add-symbolic"))
+            .on_press(Message::OpenNewMessage),
+        text::caption(fl!("new-message")),
+        widget::tooltip::Position::Bottom,
+    )
+    .gap(sp.space_xxxs)
+    .padding(sp.space_xxs);
+
     let header = applet::padded_control(
         header_row
             .push(widget::horizontal_space())
-            .push(
-                widget::button::icon(widget::icon::from_name("list-add-symbolic"))
-                    .on_press(Message::OpenNewMessage),
-            ),
+            .push(new_msg_btn),
     );
 
     let content: Element<Message> = if is_loading_conversations(params.loading_state)

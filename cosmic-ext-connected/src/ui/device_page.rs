@@ -16,8 +16,7 @@ pub fn view<'a>(device: &'a DeviceInfo, status_message: Option<&'a str>) -> Elem
     let sp = cosmic::theme::spacing();
 
     // Back button
-    let back_btn = widget::button::text(fl!("back"))
-        .leading_icon(icon::from_name("go-previous-symbolic").size(16))
+    let back_btn = widget::button::icon(icon::from_name("go-previous-symbolic"))
         .on_press(Message::BackToList);
 
     // Device icon based on type
@@ -32,6 +31,7 @@ pub fn view<'a>(device: &'a DeviceInfo, status_message: Option<&'a str>) -> Elem
     // Build header row with device info and optional ping button
     let header: Element<Message> = {
         let mut header_row = row![
+            back_btn,
             icon::from_name(icon_name).size(48),
             column![
                 text::title4(device.name.clone()),
@@ -60,7 +60,7 @@ pub fn view<'a>(device: &'a DeviceInfo, status_message: Option<&'a str>) -> Elem
             header_row = header_row.push(ping_with_tooltip);
         }
 
-        header_row.into()
+        applet::padded_control(header_row).into()
     };
 
     // Build the combined status row with connected, paired, and battery
@@ -155,20 +155,20 @@ pub fn view<'a>(device: &'a DeviceInfo, status_message: Option<&'a str>) -> Elem
         widget::Space::new(Length::Shrink, Length::Shrink).into()
     };
 
-    widget::container(
-        column![
-            back_btn,
-            status_bar,
-            header,
-            status_row,
-            actions,
-            pairing_section,
-            notifications_section,
-        ]
-        .spacing(sp.space_xs)
-        .padding(sp.space_s),
-    )
-    .into()
+    let divider = || applet::padded_control(widget::divider::horizontal::default());
+
+    let mut content = column![header, status_bar, status_row, divider(), actions,]
+        .spacing(sp.space_xs);
+
+    content = content.push(divider());
+    content = content.push(pairing_section);
+
+    if !device.notifications.is_empty() {
+        content = content.push(divider());
+        content = content.push(notifications_section);
+    }
+
+    widget::container(content).into()
 }
 
 /// Build the combined status row showing connected, paired, and battery status.

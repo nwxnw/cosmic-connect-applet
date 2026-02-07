@@ -211,20 +211,20 @@ pub fn view_media_player(info: &MediaInfo) -> Element<'_, Message> {
     .align_y(Alignment::Center)
     .padding([0, sp.space_xs as u16]);
 
+    let divider = || applet::padded_control(widget::divider::horizontal::default());
+
     // Assemble the view
     column![
         player_selector,
-        widget::vertical_space().height(Length::Fixed(sp.space_s as f32)),
+        divider(),
         widget::container(widget::icon::from_name("multimedia-player-symbolic").size(48))
             .width(Length::Fill)
             .align_x(Alignment::Center),
-        widget::vertical_space().height(Length::Fixed(sp.space_xs as f32)),
         applet::padded_control(track_info),
-        widget::vertical_space().height(Length::Fixed(sp.space_s as f32)),
+        divider(),
         position_display,
-        widget::vertical_space().height(Length::Fixed(sp.space_xs as f32)),
         controls_container,
-        widget::vertical_space().height(Length::Fixed(sp.space_s as f32)),
+        divider(),
         volume_row,
     ]
     .spacing(sp.space_xxxs)

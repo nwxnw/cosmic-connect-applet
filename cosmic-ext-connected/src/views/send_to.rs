@@ -26,14 +26,15 @@ pub fn view_send_to(params: SendToParams<'_>) -> Element<'_, Message> {
     let device_type = params.device_type;
     let device_id = params.device_id.to_string();
 
-    // Back button
-    let back_btn = widget::button::text(fl!("back"))
-        .leading_icon(icon::from_name("go-previous-symbolic").size(16))
-        .on_press(Message::BackFromSendTo);
-
-    // Header
+    // Header with back button and title
     let header = applet::padded_control(
-        text::heading(fl!("send-to-title", device = device_type)),
+        row![
+            widget::button::icon(icon::from_name("go-previous-symbolic"))
+                .on_press(Message::BackFromSendTo),
+            text::heading(fl!("send-to-title", device = device_type)),
+        ]
+        .spacing(sp.space_xxs)
+        .align_y(Alignment::Center),
     );
 
     // Action list items (consistent with device page style)
@@ -108,9 +109,8 @@ pub fn view_send_to(params: SendToParams<'_>) -> Element<'_, Message> {
 
     widget::container(
         column![
-            back_btn,
-            status_bar,
             header,
+            status_bar,
             share_file_item,
             send_clipboard_item,
             send_ping_item,

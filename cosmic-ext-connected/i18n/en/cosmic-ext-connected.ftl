@@ -4,7 +4,6 @@
 app-title = Connected
 
 # General UI
-back = Back
 settings = Settings
 loading = Loading...
 error = Error
