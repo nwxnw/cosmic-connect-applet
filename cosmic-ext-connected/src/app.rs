@@ -31,10 +31,10 @@ use crate::views::helpers::{
     popup_container, DEFAULT_POPUP_WIDTH, POPUP_MAX_HEIGHT, WIDE_POPUP_WIDTH,
 };
 use crate::views::send_to::{view_send_to, SendToParams};
-use crate::views::settings::view_settings;
+use crate::views::settings::{view_notification_settings, view_settings};
 use cosmic::app::Core;
 use cosmic::iced::platform_specific::shell::wayland::commands::popup::{destroy_popup, get_popup};
-use cosmic::iced::widget::{column, scrollable, text};
+use cosmic::iced::widget::{column, scrollable};
 use cosmic::iced::{clipboard, Alignment, Subscription};
 use cosmic::iced_core::layout::Limits;
 use cosmic::iced_runtime::core::window;
@@ -135,6 +135,10 @@ pub enum Message {
     // Settings
     /// Toggle the settings view
     ToggleSettings,
+    /// Navigate to notification settings sub-page
+    OpenNotificationSettings,
+    /// Return from notification settings to main settings
+    BackFromNotificationSettings,
     /// Toggle a specific setting
     ToggleSetting(SettingKey),
     /// Set the notification timeout duration (seconds)
@@ -354,6 +358,8 @@ pub enum ViewMode {
     NewMessage,
     /// Settings view
     Settings,
+    /// Notification settings sub-page
+    NotificationSettings,
     /// Media player controls
     MediaControls,
 }
@@ -984,11 +990,19 @@ impl Application for ConnectApplet {
 
             // Settings
             Message::ToggleSettings => {
-                if self.view_mode == ViewMode::Settings {
+                if self.view_mode == ViewMode::Settings
+                    || self.view_mode == ViewMode::NotificationSettings
+                {
                     self.view_mode = ViewMode::DeviceList;
                 } else {
                     self.view_mode = ViewMode::Settings;
                 }
+            }
+            Message::OpenNotificationSettings => {
+                self.view_mode = ViewMode::NotificationSettings;
+            }
+            Message::BackFromNotificationSettings => {
+                self.view_mode = ViewMode::Settings;
             }
             Message::ToggleSetting(key) => {
                 match key {
@@ -2364,14 +2378,19 @@ impl Application for ConnectApplet {
             _ => DEFAULT_POPUP_WIDTH,
         };
 
+        let sp = cosmic::theme::spacing();
+
         // Handle error state first
         if let Some(err) = &self.error {
             let content: Element<Message> = widget::container(
-                column![text(fl!("error")).size(16), text(err.clone()).size(12),]
-                    .spacing(8)
-                    .align_x(Alignment::Center),
+                column![
+                    widget::text::heading(fl!("error")),
+                    widget::text::caption(err.clone()),
+                ]
+                .spacing(sp.space_xxs)
+                .align_x(Alignment::Center),
             )
-            .padding(16)
+            .padding(sp.space_s)
             .into();
             return popup_container(content, popup_width, self.core.applet.anchor);
         }
@@ -2379,9 +2398,9 @@ impl Application for ConnectApplet {
         // Handle loading state
         if self.loading && self.view_mode == ViewMode::DeviceList {
             let content: Element<Message> = widget::container(
-                column![text(fl!("loading")).size(14),].align_x(Alignment::Center),
+                column![widget::text::body(fl!("loading")),].align_x(Alignment::Center),
             )
-            .padding(16)
+            .padding(sp.space_s)
             .into();
             return popup_container(content, popup_width, self.core.applet.anchor);
         }
@@ -2389,6 +2408,7 @@ impl Application for ConnectApplet {
         // Route to appropriate view based on view mode
         let content: Element<Message> = match &self.view_mode {
             ViewMode::Settings => view_settings(&self.config),
+            ViewMode::NotificationSettings => view_notification_settings(&self.config),
             ViewMode::ConversationList => view_conversation_list(ConversationListParams {
                 device_name: self.sms_device_name.as_deref(),
                 conversations: &self.conversations,
@@ -2450,16 +2470,15 @@ impl Application for ConnectApplet {
                 if self.devices.is_empty() {
                     widget::container(
                         column![
-                            text(fl!("no-devices")).size(16),
-                            text(fl!("no-devices-hint")).size(12),
-                            widget::divider::horizontal::default(),
+                            widget::text::heading(fl!("no-devices")),
+                            widget::text::caption(fl!("no-devices-hint")),
                             widget::button::icon(widget::icon::from_name("emblem-system-symbolic"))
                                 .on_press(Message::ToggleSettings),
                         ]
-                        .spacing(8)
+                        .spacing(sp.space_xxs)
                         .align_x(Alignment::Center),
                     )
-                    .padding(16)
+                    .padding(sp.space_s)
                     .into()
                 } else {
                     ui::device_list::view(

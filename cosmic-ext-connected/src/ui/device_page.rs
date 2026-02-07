@@ -4,14 +4,17 @@
 
 use crate::app::{DeviceInfo, Message};
 use crate::fl;
-use cosmic::iced::widget::{column, row, text, tooltip};
+use cosmic::applet;
+use cosmic::iced::widget::{column, row, tooltip};
 use cosmic::iced::{Alignment, Length};
-use cosmic::widget::{self, icon};
+use cosmic::widget::{self, icon, text};
 use cosmic::Element;
 use kdeconnect_dbus::plugins::NotificationInfo;
 
 /// Render the device detail page.
 pub fn view<'a>(device: &'a DeviceInfo, status_message: Option<&'a str>) -> Element<'a, Message> {
+    let sp = cosmic::theme::spacing();
+
     // Back button
     let back_btn = widget::button::text(fl!("back"))
         .leading_icon(icon::from_name("go-previous-symbolic").size(16))
@@ -31,13 +34,13 @@ pub fn view<'a>(device: &'a DeviceInfo, status_message: Option<&'a str>) -> Elem
         let mut header_row = row![
             icon::from_name(icon_name).size(48),
             column![
-                text(device.name.clone()).size(18),
-                text(device.device_type.clone()).size(12),
+                text::title4(device.name.clone()),
+                text::caption(device.device_type.clone()),
             ]
-            .spacing(4),
+            .spacing(sp.space_xxxs),
             widget::horizontal_space(),
         ]
-        .spacing(16)
+        .spacing(sp.space_s)
         .align_y(Alignment::Center);
 
         // Add ping button if device is reachable and paired
@@ -46,14 +49,14 @@ pub fn view<'a>(device: &'a DeviceInfo, status_message: Option<&'a str>) -> Elem
             let ping_btn =
                 widget::button::icon(icon::from_name("emblem-synchronizing-symbolic").size(20))
                     .on_press(Message::SendPing(device_id_for_ping))
-                    .padding(8);
+                    .padding(sp.space_xxs);
             let ping_with_tooltip = tooltip(
                 ping_btn,
-                text(fl!("send-ping")).size(11),
+                text::caption(fl!("send-ping")),
                 tooltip::Position::Bottom,
             )
-            .gap(4)
-            .padding(8);
+            .gap(sp.space_xxxs)
+            .padding(sp.space_xxs);
             header_row = header_row.push(ping_with_tooltip);
         }
 
@@ -74,77 +77,65 @@ pub fn view<'a>(device: &'a DeviceInfo, status_message: Option<&'a str>) -> Elem
         // SMS Messages action item
         let sms_row = row![
             icon::from_name("mail-message-new-symbolic").size(24),
-            text(fl!("sms-messages")).size(14),
+            text::body(fl!("sms-messages")),
             widget::horizontal_space(),
             icon::from_name("go-next-symbolic").size(16),
         ]
-        .spacing(12)
+        .spacing(sp.space_xs)
         .align_y(Alignment::Center);
 
-        let sms_item =
-            widget::button::custom(widget::container(sms_row).padding(8).width(Length::Fill))
-                .class(cosmic::theme::Button::Text)
-                .on_press(Message::OpenSmsView(device_id_for_sms))
-                .width(Length::Fill);
+        let sms_item = applet::menu_button(sms_row)
+            .on_press(Message::OpenSmsView(device_id_for_sms));
 
         // Send to device action item
         let sendto_row = row![
             icon::from_name("document-send-symbolic").size(24),
-            text(fl!("send-to", device = device.device_type.as_str())).size(14),
+            text::body(fl!("send-to", device = device.device_type.as_str())),
             widget::horizontal_space(),
             icon::from_name("go-next-symbolic").size(16),
         ]
-        .spacing(12)
+        .spacing(sp.space_xs)
         .align_y(Alignment::Center);
 
-        let sendto_item =
-            widget::button::custom(widget::container(sendto_row).padding(8).width(Length::Fill))
-                .class(cosmic::theme::Button::Text)
-                .on_press(Message::OpenSendToView(
-                    device_id_for_sendto,
-                    device_type_for_sendto,
-                ))
-                .width(Length::Fill);
+        let sendto_item = applet::menu_button(sendto_row)
+            .on_press(Message::OpenSendToView(
+                device_id_for_sendto,
+                device_type_for_sendto,
+            ));
 
         // Media controls action item
         let media_row = row![
             icon::from_name("multimedia-player-symbolic").size(24),
-            text(fl!("media-controls")).size(14),
+            text::body(fl!("media-controls")),
             widget::horizontal_space(),
             icon::from_name("go-next-symbolic").size(16),
         ]
-        .spacing(12)
+        .spacing(sp.space_xs)
         .align_y(Alignment::Center);
 
-        let media_item =
-            widget::button::custom(widget::container(media_row).padding(8).width(Length::Fill))
-                .class(cosmic::theme::Button::Text)
-                .on_press(Message::OpenMediaView(device_id_for_media))
-                .width(Length::Fill);
+        let media_item = applet::menu_button(media_row)
+            .on_press(Message::OpenMediaView(device_id_for_media));
 
         // Find Phone action item (no chevron - immediate action)
         let find_row = row![
             icon::from_name("audio-volume-high-symbolic").size(24),
-            text(fl!("find-phone")).size(14),
+            text::body(fl!("find-phone")),
             widget::horizontal_space(),
         ]
-        .spacing(12)
+        .spacing(sp.space_xs)
         .align_y(Alignment::Center);
 
-        let find_item =
-            widget::button::custom(widget::container(find_row).padding(8).width(Length::Fill))
-                .class(cosmic::theme::Button::Text)
-                .on_press(Message::FindMyPhone(device_id_for_find))
-                .width(Length::Fill);
+        let find_item = applet::menu_button(find_row)
+            .on_press(Message::FindMyPhone(device_id_for_find));
 
         column![sms_item, sendto_item, media_item, find_item,]
-            .spacing(4)
+            .spacing(sp.space_xxxs)
             .into()
     } else if !device.is_paired {
         // Not paired - show nothing (pairing section will be shown below)
         widget::Space::new(Length::Shrink, Length::Shrink).into()
     } else {
-        text(fl!("device-must-be-connected")).size(12).into()
+        text::caption(fl!("device-must-be-connected")).into()
     };
 
     // Pairing section
@@ -155,8 +146,8 @@ pub fn view<'a>(device: &'a DeviceInfo, status_message: Option<&'a str>) -> Elem
 
     // Build status message element if present
     let status_bar: Element<Message> = if let Some(msg) = status_message {
-        widget::container(text(msg).size(11))
-            .padding([4, 8])
+        widget::container(text::caption(msg))
+            .padding([sp.space_xxxs, sp.space_xxs])
             .width(Length::Fill)
             .class(cosmic::theme::Container::Card)
             .into()
@@ -168,22 +159,22 @@ pub fn view<'a>(device: &'a DeviceInfo, status_message: Option<&'a str>) -> Elem
         column![
             back_btn,
             status_bar,
-            widget::divider::horizontal::default(),
             header,
             status_row,
-            widget::divider::horizontal::default(),
             actions,
             pairing_section,
             notifications_section,
         ]
-        .spacing(12)
-        .padding(16),
+        .spacing(sp.space_xs)
+        .padding(sp.space_s),
     )
     .into()
 }
 
 /// Build the combined status row showing connected, paired, and battery status.
 fn build_status_row<'a>(device: &'a DeviceInfo) -> Element<'a, Message> {
+    let sp = cosmic::theme::spacing();
+
     // Connected status (left-aligned) - use icon to indicate status
     let connected_icon_name = if device.is_reachable {
         "emblem-ok-symbolic" // Green checkmark
@@ -192,9 +183,9 @@ fn build_status_row<'a>(device: &'a DeviceInfo) -> Element<'a, Message> {
     };
     let connected_element = row![
         icon::from_name(connected_icon_name).size(16),
-        text(fl!("connected")).size(12),
+        text::caption(fl!("connected")),
     ]
-    .spacing(4)
+    .spacing(sp.space_xxxs)
     .align_y(Alignment::Center);
 
     // Paired status (center-aligned) - use icon to indicate status
@@ -205,9 +196,9 @@ fn build_status_row<'a>(device: &'a DeviceInfo) -> Element<'a, Message> {
     };
     let paired_element = row![
         icon::from_name(paired_icon_name).size(16),
-        text(fl!("paired")).size(12),
+        text::caption(fl!("paired")),
     ]
-    .spacing(4)
+    .spacing(sp.space_xxxs)
     .align_y(Alignment::Center);
 
     // Battery status (right-aligned) - percentage text + icon
@@ -215,12 +206,12 @@ fn build_status_row<'a>(device: &'a DeviceInfo) -> Element<'a, Message> {
     let battery_element: Element<Message> =
         if let (Some(level), Some(charging)) = (device.battery_level, device.battery_charging) {
             if level >= 0 {
-                let icon_name = get_battery_icon_name(level, charging);
+                let battery_icon_name = get_battery_icon_name(level, charging);
                 row![
-                    text(format!("{}%", level)).size(12),
-                    icon::from_name(icon_name).size(24),
+                    text::caption(format!("{}%", level)),
+                    icon::from_name(battery_icon_name).size(24),
                 ]
-                .spacing(4)
+                .spacing(sp.space_xxxs)
                 .align_y(Alignment::Center)
                 .into()
             } else {
@@ -276,6 +267,7 @@ fn get_battery_icon_name(level: i32, charging: bool) -> &'static str {
 
 /// Build the pairing section based on device state.
 fn build_pairing_section<'a>(device: &'a DeviceInfo) -> Element<'a, Message> {
+    let sp = cosmic::theme::spacing();
     let device_id = device.id.clone();
 
     // If peer requested pairing, show accept/reject buttons
@@ -283,8 +275,8 @@ fn build_pairing_section<'a>(device: &'a DeviceInfo) -> Element<'a, Message> {
         let accept_id = device_id.clone();
         let reject_id = device_id;
         return column![
-            text(fl!("pairing-request")).size(14),
-            text(fl!("device-wants-to-pair")).size(12),
+            text::heading(fl!("pairing-request")),
+            text::caption(fl!("device-wants-to-pair")),
             row![
                 widget::button::suggested(fl!("accept"))
                     .leading_icon(icon::from_name("emblem-ok-symbolic").size(16))
@@ -293,79 +285,78 @@ fn build_pairing_section<'a>(device: &'a DeviceInfo) -> Element<'a, Message> {
                     .leading_icon(icon::from_name("window-close-symbolic").size(16))
                     .on_press(Message::RejectPairing(reject_id)),
             ]
-            .spacing(8),
+            .spacing(sp.space_xxs),
         ]
-        .spacing(8)
+        .spacing(sp.space_xxs)
         .into();
     }
 
     // If we requested pairing, show cancel button
     if device.is_pair_requested {
         return column![
-            text(fl!("pairing")).size(14),
-            text(fl!("waiting-for-device")).size(12),
+            text::heading(fl!("pairing")),
+            text::caption(fl!("waiting-for-device")),
             widget::button::standard(fl!("cancel")).on_press(Message::RejectPairing(device_id)),
         ]
-        .spacing(8)
+        .spacing(sp.space_xxs)
         .into();
     }
 
     // If paired, show unpair button
     if device.is_paired {
         return column![
-            text(fl!("pairing")).size(14),
+            text::heading(fl!("pairing")),
             widget::button::destructive(fl!("unpair"))
                 .leading_icon(icon::from_name("list-remove-symbolic").size(16))
                 .on_press(Message::Unpair(device_id)),
         ]
-        .spacing(8)
+        .spacing(sp.space_xxs)
         .into();
     }
 
     // If reachable but not paired, show pair button
     if device.is_reachable {
         return column![
-            text(fl!("pairing")).size(14),
-            text(fl!("device-not-paired")).size(12),
+            text::heading(fl!("pairing")),
+            text::caption(fl!("device-not-paired")),
             widget::button::suggested(fl!("pair"))
                 .leading_icon(icon::from_name("list-add-symbolic").size(16))
                 .on_press(Message::RequestPair(device_id)),
         ]
-        .spacing(8)
+        .spacing(sp.space_xxs)
         .into();
     }
 
     // Offline and not paired
     column![
-        text(fl!("pairing")).size(14),
-        text(fl!("device-offline")).size(12),
+        text::heading(fl!("pairing")),
+        text::caption(fl!("device-offline")),
     ]
-    .spacing(8)
+    .spacing(sp.space_xxs)
     .into()
 }
 
 /// Build the notifications section.
 fn build_notifications_section<'a>(device: &'a DeviceInfo) -> Element<'a, Message> {
+    let sp = cosmic::theme::spacing();
+
     if device.notifications.is_empty() {
         return widget::Space::new(Length::Shrink, Length::Shrink).into();
     }
 
-    let mut notif_column = column![text(format!(
+    let mut notif_column = column![text::heading(format!(
         "{} ({})",
         fl!("notifications"),
         device.notifications.len()
-    ))
-    .size(14),]
-    .spacing(8);
+    )),]
+    .spacing(sp.space_xxs);
 
     for notif in &device.notifications {
         let notif_widget = build_notification_row(device, notif);
         notif_column = notif_column.push(notif_widget);
     }
 
-    notif_column
-        .push(widget::divider::horizontal::default())
-        .into()
+    notif_column.into()
 }
 
 /// Build a single notification row.
@@ -373,20 +364,22 @@ fn build_notification_row<'a>(
     device: &'a DeviceInfo,
     notif: &'a NotificationInfo,
 ) -> Element<'a, Message> {
+    let sp = cosmic::theme::spacing();
+
     let notif_title = if notif.title.is_empty() {
         notif.app_name.clone()
     } else {
         format!("{}: {}", notif.app_name, notif.title)
     };
 
-    let notif_content = column![text(notif_title).size(13), text(&notif.text).size(11),].spacing(2);
+    let notif_content = column![text::body(notif_title), text::caption(&notif.text),].spacing(2);
 
     let mut notif_row = row![
         icon::from_name("notification-symbolic").size(20),
         notif_content,
         widget::horizontal_space(),
     ]
-    .spacing(8)
+    .spacing(sp.space_xxs)
     .align_y(Alignment::Center);
 
     // Add dismiss button if notification is dismissable
@@ -400,7 +393,7 @@ fn build_notification_row<'a>(
     }
 
     widget::container(notif_row)
-        .padding([4, 8])
+        .padding([sp.space_xxxs, sp.space_xxs])
         .width(Length::Fill)
         .into()
 }

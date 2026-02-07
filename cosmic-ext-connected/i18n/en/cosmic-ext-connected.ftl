@@ -79,27 +79,23 @@ device-offline = Device is offline
 
 # Settings page
 settings-battery = Show battery percentage
-settings-battery-desc = Display battery level next to connected devices
 settings-offline = Show offline devices
-settings-offline-desc = Display paired devices that are not currently connected
 settings-notifications = Show notifications
-settings-notifications-desc = Display notifications from connected devices
+
+# Notification settings sub-page
+notification-settings = Notification settings
 
 # SMS Notifications settings
-settings-sms-notifications = SMS notifications
-settings-sms-notifications-desc = Show desktop notification when new SMS arrives
-settings-sms-show-content = Show message content
-settings-sms-show-content-desc = Display message preview in notification
-settings-sms-show-sender = Show sender name
-settings-sms-show-sender-desc = Display who sent the message
+settings-sms-section = SMS messages
+settings-sms-notifications = Show SMS messages
+settings-sms-show-sender = Show sender
+settings-sms-show-content = Show content
 
 # Call Notifications settings
-settings-call-notifications = Call notifications
-settings-call-notifications-desc = Show desktop notification for incoming and missed calls
-settings-call-show-number = Show phone number
-settings-call-show-number-desc = Display caller's phone number in notification
+settings-call-section = Calls
+settings-call-notifications = Show calls
 settings-call-show-name = Show caller name
-settings-call-show-name-desc = Display contact name if available
+settings-call-show-number = Show phone number
 
 # SMS Notification text
 sms-notification-title = New SMS
@@ -113,12 +109,11 @@ missed-call = Missed Call
 missed-call-from = Missed call from { $name }
 
 # File Notifications settings
-settings-file-notifications = File notifications
-settings-file-notifications-desc = Show notification when files are received
+settings-file-section = File transfers
+settings-file-notifications = Show file transfers
 
 # Notification timeout settings
-settings-notification-timeout = Notification duration
-settings-notification-timeout-desc = How long notifications stay on screen
+settings-notification-timeout = Duration
 notification-timeout-seconds = { $seconds }s
 
 # File Notification text

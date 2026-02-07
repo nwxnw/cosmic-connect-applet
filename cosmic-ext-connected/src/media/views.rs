@@ -3,9 +3,10 @@
 use crate::app::{MediaInfo, Message};
 use crate::fl;
 use crate::views::helpers::format_duration;
-use cosmic::iced::widget::{column, row, text};
+use cosmic::applet;
+use cosmic::iced::widget::{column, row};
 use cosmic::iced::{Alignment, Length};
-use cosmic::widget;
+use cosmic::widget::{self, text};
 use cosmic::Element;
 
 /// Parameters for the media controls view.
@@ -17,28 +18,30 @@ pub struct MediaControlsParams<'a> {
 
 /// Render the media controls view.
 pub fn view_media_controls(params: MediaControlsParams<'_>) -> Element<'_, Message> {
+    let sp = cosmic::theme::spacing();
     let default_device = fl!("device");
     let device_name = params.device_name.unwrap_or(&default_device);
 
-    let header = row![
-        widget::button::icon(widget::icon::from_name("go-previous-symbolic"))
-            .on_press(Message::CloseMediaView),
-        text(format!("{} - {}", fl!("media"), device_name)).size(16),
-        widget::horizontal_space(),
-    ]
-    .spacing(8)
-    .align_y(Alignment::Center)
-    .padding([8, 12]);
+    let header = applet::padded_control(
+        row![
+            widget::button::icon(widget::icon::from_name("go-previous-symbolic"))
+                .on_press(Message::CloseMediaView),
+            text::heading(format!("{} - {}", fl!("media"), device_name)),
+            widget::horizontal_space(),
+        ]
+        .spacing(sp.space_xxs)
+        .align_y(Alignment::Center),
+    );
 
     let content: Element<Message> = if params.media_loading {
         widget::container(
-            column![text(fl!("loading-media")).size(14),]
-                .spacing(12)
+            column![text::body(fl!("loading-media")),]
+                .spacing(sp.space_xs)
                 .align_x(Alignment::Center),
         )
         .width(Length::Fill)
         .align_x(Alignment::Center)
-        .padding(24)
+        .padding(sp.space_m)
         .into()
     } else if let Some(info) = params.media_info {
         if info.players.is_empty() {
@@ -46,15 +49,15 @@ pub fn view_media_controls(params: MediaControlsParams<'_>) -> Element<'_, Messa
             widget::container(
                 column![
                     widget::icon::from_name("multimedia-player-symbolic").size(48),
-                    text(fl!("no-media-players")).size(14),
-                    text(fl!("start-playing")).size(12),
+                    text::body(fl!("no-media-players")),
+                    text::caption(fl!("start-playing")),
                 ]
-                .spacing(12)
+                .spacing(sp.space_xs)
                 .align_x(Alignment::Center),
             )
             .width(Length::Fill)
             .align_x(Alignment::Center)
-            .padding(24)
+            .padding(sp.space_m)
             .into()
         } else {
             // Show media controls
@@ -65,26 +68,28 @@ pub fn view_media_controls(params: MediaControlsParams<'_>) -> Element<'_, Messa
         widget::container(
             column![
                 widget::icon::from_name("dialog-error-symbolic").size(48),
-                text(fl!("media-not-available")).size(14),
-                text(fl!("enable-mpris")).size(12),
+                text::body(fl!("media-not-available")),
+                text::caption(fl!("enable-mpris")),
             ]
-            .spacing(12)
+            .spacing(sp.space_xs)
             .align_x(Alignment::Center),
         )
         .width(Length::Fill)
         .align_x(Alignment::Center)
-        .padding(24)
+        .padding(sp.space_m)
         .into()
     };
 
-    column![header, widget::divider::horizontal::default(), content,]
-        .spacing(8)
+    column![header, content,]
+        .spacing(sp.space_xxs)
         .width(Length::Fill)
         .into()
 }
 
 /// Render the media player with controls.
 pub fn view_media_player(info: &MediaInfo) -> Element<'_, Message> {
+    let sp = cosmic::theme::spacing();
+
     // Player selector (if multiple players)
     let player_selector: Element<Message> = if info.players.len() > 1 {
         let players: Vec<String> = info.players.clone();
@@ -99,23 +104,20 @@ pub fn view_media_player(info: &MediaInfo) -> Element<'_, Message> {
         };
         let players_for_dropdown: Vec<String> = players.clone();
 
-        widget::container(
+        applet::padded_control(
             row![
-                text(fl!("player")).size(12),
+                text::caption(fl!("player")),
                 widget::dropdown(players, selected_idx, move |idx| {
                     Message::MediaSelectPlayer(players_for_dropdown[idx].clone())
                 })
                 .width(Length::Fill),
             ]
-            .spacing(8)
+            .spacing(sp.space_xxs)
             .align_y(Alignment::Center),
         )
-        .padding([0, 12])
         .into()
     } else {
-        widget::container(text(info.current_player.clone()).size(12))
-            .padding([0, 12])
-            .into()
+        applet::padded_control(text::caption(info.current_player.clone())).into()
     };
 
     // Track info
@@ -136,11 +138,11 @@ pub fn view_media_player(info: &MediaInfo) -> Element<'_, Message> {
     };
 
     let track_info = column![
-        text(title_text).size(16),
-        text(artist_text).size(13),
-        text(album_text).size(11),
+        text::body(title_text),
+        text::caption(artist_text),
+        text::caption(album_text),
     ]
-    .spacing(4)
+    .spacing(sp.space_xxxs)
     .align_x(Alignment::Center)
     .width(Length::Fill);
 
@@ -148,11 +150,11 @@ pub fn view_media_player(info: &MediaInfo) -> Element<'_, Message> {
     let position_str = format_duration(info.position);
     let length_str = format_duration(info.length);
     let position_display = row![
-        text(position_str).size(10),
+        text::caption(position_str),
         widget::horizontal_space(),
-        text(length_str).size(10),
+        text::caption(length_str),
     ]
-    .padding([0, 12]);
+    .padding([0, sp.space_xs as u16]);
 
     // Playback controls
     let play_icon = if info.is_playing {
@@ -179,7 +181,7 @@ pub fn view_media_player(info: &MediaInfo) -> Element<'_, Message> {
         });
 
     let playback_controls = row![prev_button, play_button, next_button,]
-        .spacing(16)
+        .spacing(sp.space_s)
         .align_y(Alignment::Center);
 
     let controls_container = widget::container(playback_controls)
@@ -202,32 +204,31 @@ pub fn view_media_player(info: &MediaInfo) -> Element<'_, Message> {
     let volume_row = row![
         widget::icon::from_name(volume_icon).size(20),
         volume_slider,
-        text(format!("{}%", info.volume))
-            .size(10)
+        text::caption(format!("{}%", info.volume))
             .width(Length::Fixed(36.0)),
     ]
-    .spacing(8)
+    .spacing(sp.space_xxs)
     .align_y(Alignment::Center)
-    .padding([0, 12]);
+    .padding([0, sp.space_xs as u16]);
 
     // Assemble the view
     column![
         player_selector,
-        widget::vertical_space().height(Length::Fixed(16.0)),
+        widget::vertical_space().height(Length::Fixed(sp.space_s as f32)),
         widget::container(widget::icon::from_name("multimedia-player-symbolic").size(48))
             .width(Length::Fill)
             .align_x(Alignment::Center),
-        widget::vertical_space().height(Length::Fixed(12.0)),
-        widget::container(track_info).padding([0, 12]),
-        widget::vertical_space().height(Length::Fixed(16.0)),
+        widget::vertical_space().height(Length::Fixed(sp.space_xs as f32)),
+        applet::padded_control(track_info),
+        widget::vertical_space().height(Length::Fixed(sp.space_s as f32)),
         position_display,
-        widget::vertical_space().height(Length::Fixed(12.0)),
+        widget::vertical_space().height(Length::Fixed(sp.space_xs as f32)),
         controls_container,
-        widget::vertical_space().height(Length::Fixed(16.0)),
+        widget::vertical_space().height(Length::Fixed(sp.space_s as f32)),
         volume_row,
     ]
-    .spacing(4)
-    .padding([0, 0, 16, 0]) // Add bottom padding
+    .spacing(sp.space_xxxs)
+    .padding([0, 0, sp.space_s as u16, 0])
     .width(Length::Fill)
     .into()
 }

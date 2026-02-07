@@ -3,10 +3,11 @@
 use crate::app::{DeviceInfo, Message};
 use crate::config::Config;
 use crate::fl;
+use cosmic::applet;
 use cosmic::iced::advanced::widget::text::Style as TextStyle;
-use cosmic::iced::widget::{column, row, text};
+use cosmic::iced::widget::{column, row};
 use cosmic::iced::{Alignment, Length};
-use cosmic::widget::{self, icon};
+use cosmic::widget::{self, icon, text};
 use cosmic::{theme, Element};
 
 /// Render the device list view.
@@ -15,18 +16,21 @@ pub fn view<'a>(
     config: &'a Config,
     status_message: Option<&'a str>,
 ) -> Element<'a, Message> {
+    let sp = cosmic::theme::spacing();
+
     // Header with refresh and settings buttons
-    let header = row![
-        text(fl!("devices")).size(14),
-        widget::horizontal_space(),
-        widget::button::icon(icon::from_name("view-refresh-symbolic"))
-            .on_press(Message::RefreshDevices),
-        widget::button::icon(icon::from_name("emblem-system-symbolic"))
-            .on_press(Message::ToggleSettings),
-    ]
-    .spacing(4)
-    .align_y(Alignment::Center)
-    .padding([4, 8]);
+    let header = applet::padded_control(
+        row![
+            text::heading(fl!("devices")),
+            widget::horizontal_space(),
+            widget::button::icon(icon::from_name("view-refresh-symbolic"))
+                .on_press(Message::RefreshDevices),
+            widget::button::icon(icon::from_name("emblem-system-symbolic"))
+                .on_press(Message::ToggleSettings),
+        ]
+        .spacing(sp.space_xxxs)
+        .align_y(Alignment::Center),
+    );
 
     // Filter devices based on config
     let filtered_devices: Vec<&DeviceInfo> = devices
@@ -49,13 +53,13 @@ pub fn view<'a>(
         .map(|device| device_row(device, config))
         .collect();
 
-    let mut content = column![header, widget::divider::horizontal::default(),].spacing(4);
+    let mut content = column![header].spacing(sp.space_xxxs);
 
     // Status message bar (for feedback like "Ping sent!", "Sharing file...")
     if let Some(msg) = status_message {
         content = content.push(
-            widget::container(text(msg).size(11))
-                .padding([4, 8])
+            widget::container(text::caption(msg))
+                .padding([sp.space_xxxs, sp.space_xxs])
                 .width(Length::Fill)
                 .class(cosmic::theme::Container::Card),
         );
@@ -63,19 +67,21 @@ pub fn view<'a>(
 
     if device_rows.is_empty() {
         content = content.push(
-            widget::container(text(fl!("no-devices")).size(12))
-                .padding(16)
+            widget::container(text::caption(fl!("no-devices")))
+                .padding(sp.space_s)
                 .width(Length::Fill),
         );
     } else {
-        content = content.push(column(device_rows).spacing(8));
+        content = content.push(column(device_rows).spacing(sp.space_xxs));
     }
 
-    widget::container(content.padding(8)).into()
+    widget::container(content.padding(sp.space_xxs)).into()
 }
 
 /// Render a single device row.
 fn device_row<'a>(device: &'a DeviceInfo, config: &'a Config) -> Element<'a, Message> {
+    let sp = cosmic::theme::spacing();
+
     let icon_name = match device.device_type.as_str() {
         "phone" | "smartphone" => "phone-symbolic",
         "tablet" => "tablet-symbolic",
@@ -99,25 +105,25 @@ fn device_row<'a>(device: &'a DeviceInfo, config: &'a Config) -> Element<'a, Mes
     };
 
     // Apply warning color (yellow) to offline status text for better visual indication
-    let status_widget = if is_offline {
+    let status_widget: Element<Message> = if is_offline {
         fn warning_style(theme: &cosmic::Theme) -> TextStyle {
             let warning_color = theme.cosmic().warning.base;
             TextStyle {
                 color: Some(warning_color.into()),
             }
         }
-        widget::text(status_text)
-            .size(11)
+        text::caption(status_text)
             .class(theme::Text::Custom(warning_style))
+            .into()
     } else {
-        widget::text(status_text).size(11)
+        text::caption(status_text).into()
     };
 
     let mut row_content = row![
         icon::from_name(icon_name).size(24),
-        column![text(device.name.clone()).size(14), status_widget,].spacing(2),
+        column![text::body(device.name.clone()), status_widget,].spacing(2),
     ]
-    .spacing(12)
+    .spacing(sp.space_xs)
     .align_y(Alignment::Center);
 
     // Add battery info if available and enabled in settings
@@ -130,7 +136,7 @@ fn device_row<'a>(device: &'a DeviceInfo, config: &'a Config) -> Element<'a, Mes
                 } else {
                     format!("{}%", level)
                 };
-                row_content = row_content.push(text(battery_text).size(12));
+                row_content = row_content.push(text::caption(battery_text));
             }
         }
     }
@@ -138,8 +144,8 @@ fn device_row<'a>(device: &'a DeviceInfo, config: &'a Config) -> Element<'a, Mes
     // Add notification count badge if there are notifications and notifications are enabled
     if config.forward_notifications && !device.notifications.is_empty() {
         row_content = row_content.push(
-            widget::container(text(format!("{}", device.notifications.len())).size(11))
-                .padding([2, 6])
+            widget::container(text::caption(format!("{}", device.notifications.len())))
+                .padding([2, sp.space_xxxs as u16 + 2])
                 .class(cosmic::theme::Container::Card),
         );
     }
@@ -148,13 +154,7 @@ fn device_row<'a>(device: &'a DeviceInfo, config: &'a Config) -> Element<'a, Mes
     row_content = row_content.push(widget::horizontal_space());
     row_content = row_content.push(icon::from_name("go-next-symbolic").size(16));
 
-    widget::button::custom(
-        widget::container(row_content)
-            .padding(8)
-            .width(Length::Fill),
-    )
-    .class(cosmic::theme::Button::Text)
-    .on_press(Message::SelectDevice(device.id.clone()))
-    .width(Length::Fill)
-    .into()
+    applet::menu_button(row_content)
+        .on_press(Message::SelectDevice(device.id.clone()))
+        .into()
 }

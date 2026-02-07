@@ -4,178 +4,183 @@ use crate::app::{Message, SettingKey};
 use crate::config::Config;
 use crate::constants::notifications::{MAX_TIMEOUT_SECS, MIN_TIMEOUT_SECS};
 use crate::fl;
-use cosmic::iced::widget::{column, row, text};
+use cosmic::applet;
+use cosmic::iced::widget::row;
 use cosmic::iced::{Alignment, Length};
-use cosmic::widget;
+use cosmic::widget::{self, settings, text};
 use cosmic::Element;
 
-/// Render the settings view.
+/// Render the main settings view (general settings + nav to notification settings).
 pub fn view_settings(config: &Config) -> Element<'_, Message> {
+    let sp = cosmic::theme::spacing();
+
     let back_btn = widget::button::text(fl!("back"))
         .leading_icon(widget::icon::from_name("go-previous-symbolic").size(16))
         .on_press(Message::ToggleSettings);
 
-    let mut settings_col = column![
-        back_btn,
-        widget::divider::horizontal::default(),
-        text(fl!("settings")).size(16),
-        view_setting_toggle(
-            fl!("settings-battery"),
-            fl!("settings-battery-desc"),
-            config.show_battery_percentage,
-            SettingKey::ShowBatteryPercentage,
-        ),
-        view_setting_toggle(
-            fl!("settings-offline"),
-            fl!("settings-offline-desc"),
-            config.show_offline_devices,
-            SettingKey::ShowOfflineDevices,
-        ),
-        view_setting_toggle(
-            fl!("settings-notifications"),
-            fl!("settings-notifications-desc"),
-            config.forward_notifications,
-            SettingKey::ForwardNotifications,
-        ),
-        widget::divider::horizontal::default(),
-        view_setting_toggle(
-            fl!("settings-sms-notifications"),
-            fl!("settings-sms-notifications-desc"),
-            config.sms_notifications,
-            SettingKey::SmsNotifications,
-        ),
-    ]
-    .spacing(8)
-    .padding(16);
+    // General section
+    let general_section = settings::section()
+        .title(fl!("settings"))
+        .add(
+            settings::item::builder(fl!("settings-battery"))
+                .toggler(config.show_battery_percentage, move |_| {
+                    Message::ToggleSetting(SettingKey::ShowBatteryPercentage)
+                }),
+        )
+        .add(
+            settings::item::builder(fl!("settings-offline"))
+                .toggler(config.show_offline_devices, move |_| {
+                    Message::ToggleSetting(SettingKey::ShowOfflineDevices)
+                }),
+        )
+        .add(
+            settings::item::builder(fl!("settings-notifications"))
+                .toggler(config.forward_notifications, move |_| {
+                    Message::ToggleSetting(SettingKey::ForwardNotifications)
+                }),
+        );
 
-    // Show sub-settings only when SMS notifications are enabled
+    // Navigation to notification settings sub-page
+    let notif_nav_row = row![
+        widget::icon::from_name("preferences-system-notifications-symbolic").size(24),
+        text::body(fl!("notification-settings")),
+        widget::horizontal_space(),
+        widget::icon::from_name("go-next-symbolic").size(16),
+    ]
+    .spacing(sp.space_xs)
+    .align_y(Alignment::Center);
+
+    let notif_nav_btn = applet::menu_button(notif_nav_row)
+        .on_press(Message::OpenNotificationSettings);
+
+    let sections = settings::view_column(vec![general_section.into()]);
+
+    widget::container(
+        widget::column::with_children(vec![
+            back_btn.into(),
+            sections.into(),
+            notif_nav_btn.into(),
+        ])
+        .spacing(sp.space_xxs)
+        .padding(sp.space_s),
+    )
+    .width(Length::Fill)
+    .into()
+}
+
+/// Render the notification settings sub-page.
+pub fn view_notification_settings(config: &Config) -> Element<'_, Message> {
+    let sp = cosmic::theme::spacing();
+
+    let back_btn = widget::button::icon(widget::icon::from_name("go-previous-symbolic"))
+        .on_press(Message::BackFromNotificationSettings);
+
+    // SMS notifications section
+    let mut sms_section = settings::section()
+        .title(fl!("settings-sms-section"))
+        .add(
+            settings::item::builder(fl!("settings-sms-notifications"))
+                .toggler(config.sms_notifications, move |_| {
+                    Message::ToggleSetting(SettingKey::SmsNotifications)
+                }),
+        );
+
     if config.sms_notifications {
-        settings_col = settings_col
-            .push(view_setting_toggle(
-                fl!("settings-sms-show-sender"),
-                fl!("settings-sms-show-sender-desc"),
-                config.sms_notification_show_sender,
-                SettingKey::SmsShowSender,
-            ))
-            .push(view_setting_toggle(
-                fl!("settings-sms-show-content"),
-                fl!("settings-sms-show-content-desc"),
-                config.sms_notification_show_content,
-                SettingKey::SmsShowContent,
-            ));
+        sms_section = sms_section
+            .add(
+                settings::item::builder(fl!("settings-sms-show-sender"))
+                    .toggler(config.sms_notification_show_sender, move |_| {
+                        Message::ToggleSetting(SettingKey::SmsShowSender)
+                    }),
+            )
+            .add(
+                settings::item::builder(fl!("settings-sms-show-content"))
+                    .toggler(config.sms_notification_show_content, move |_| {
+                        Message::ToggleSetting(SettingKey::SmsShowContent)
+                    }),
+            );
     }
 
     // Call notifications section
-    settings_col = settings_col
-        .push(widget::divider::horizontal::default())
-        .push(view_setting_toggle(
-            fl!("settings-call-notifications"),
-            fl!("settings-call-notifications-desc"),
-            config.call_notifications,
-            SettingKey::CallNotifications,
-        ));
+    let mut call_section = settings::section()
+        .title(fl!("settings-call-section"))
+        .add(
+            settings::item::builder(fl!("settings-call-notifications"))
+                .toggler(config.call_notifications, move |_| {
+                    Message::ToggleSetting(SettingKey::CallNotifications)
+                }),
+        );
 
-    // Show sub-settings only when call notifications are enabled
     if config.call_notifications {
-        settings_col = settings_col
-            .push(view_setting_toggle(
-                fl!("settings-call-show-name"),
-                fl!("settings-call-show-name-desc"),
-                config.call_notification_show_name,
-                SettingKey::CallShowName,
-            ))
-            .push(view_setting_toggle(
-                fl!("settings-call-show-number"),
-                fl!("settings-call-show-number-desc"),
-                config.call_notification_show_number,
-                SettingKey::CallShowNumber,
-            ));
+        call_section = call_section
+            .add(
+                settings::item::builder(fl!("settings-call-show-name"))
+                    .toggler(config.call_notification_show_name, move |_| {
+                        Message::ToggleSetting(SettingKey::CallShowName)
+                    }),
+            )
+            .add(
+                settings::item::builder(fl!("settings-call-show-number"))
+                    .toggler(config.call_notification_show_number, move |_| {
+                        Message::ToggleSetting(SettingKey::CallShowNumber)
+                    }),
+            );
     }
 
     // File notifications section
-    settings_col = settings_col
-        .push(widget::divider::horizontal::default())
-        .push(view_setting_toggle(
-            fl!("settings-file-notifications"),
-            fl!("settings-file-notifications-desc"),
-            config.file_notifications,
-            SettingKey::FileNotifications,
-        ));
+    let file_section = settings::section()
+        .title(fl!("settings-file-section"))
+        .add(
+            settings::item::builder(fl!("settings-file-notifications"))
+                .toggler(config.file_notifications, move |_| {
+                    Message::ToggleSetting(SettingKey::FileNotifications)
+                }),
+        );
 
-    // Notification timeout slider
-    settings_col = settings_col
-        .push(widget::divider::horizontal::default())
-        .push(view_setting_slider(
-            fl!("settings-notification-timeout"),
-            fl!("settings-notification-timeout-desc"),
-            config.notification_timeout_secs,
-            MIN_TIMEOUT_SECS..=MAX_TIMEOUT_SECS,
-            Message::SetNotificationTimeout,
-        ));
-
-    widget::container(settings_col).width(Length::Fill).into()
-}
-
-/// Render a setting row with a slider control.
-fn view_setting_slider(
-    title: String,
-    description: String,
-    value: u32,
-    range: std::ops::RangeInclusive<u32>,
-    on_change: fn(u32) -> Message,
-) -> Element<'static, Message> {
-    let label = fl!("notification-timeout-seconds", seconds = value.to_string());
-
-    let slider = widget::slider(range, value, on_change);
-
-    let text_col = column![
-        text(title).size(14),
-        text(description).size(11).wrapping(text::Wrapping::Word),
-    ]
-    .spacing(2)
-    .width(Length::Fill);
-
-    let slider_row = row![
+    // Notification timeout section
+    let label = fl!(
+        "notification-timeout-seconds",
+        seconds = config.notification_timeout_secs.to_string()
+    );
+    let slider = widget::slider(
+        MIN_TIMEOUT_SECS..=MAX_TIMEOUT_SECS,
+        config.notification_timeout_secs,
+        Message::SetNotificationTimeout,
+    );
+    let slider_control = row![
         slider,
-        text(label).size(12).width(Length::Fixed(36.0)),
+        widget::text::caption(label).width(Length::Fixed(36.0)),
     ]
-    .spacing(8)
+    .spacing(sp.space_xxs)
     .align_y(Alignment::Center)
     .width(Length::Fixed(160.0));
 
-    let setting_row = row![text_col, slider_row]
-        .spacing(12)
-        .align_y(Alignment::Center);
+    let timeout_section = settings::section()
+        .title(fl!("settings-notification-timeout"))
+        .add(settings::item::builder("").control(slider_control));
 
-    widget::container(setting_row)
-        .padding(12)
-        .width(Length::Fill)
-        .into()
-}
+    let sections = settings::view_column(vec![
+        sms_section.into(),
+        call_section.into(),
+        file_section.into(),
+        timeout_section.into(),
+    ]);
 
-/// Render a single setting toggle row.
-pub fn view_setting_toggle(
-    title: String,
-    description: String,
-    enabled: bool,
-    key: SettingKey,
-) -> Element<'static, Message> {
-    let toggle = widget::toggler(enabled).on_toggle(move |_| Message::ToggleSetting(key.clone()));
-
-    // Use width constraint on text column to ensure toggle alignment
-    let text_col = column![
-        text(title).size(14),
-        text(description).size(11).wrapping(text::Wrapping::Word),
+    let header = row![
+        back_btn,
+        text::heading(fl!("notification-settings")),
     ]
-    .spacing(2)
-    .width(Length::Fill);
+    .spacing(sp.space_xxs)
+    .align_y(Alignment::Center);
 
-    let setting_row = row![text_col, toggle,]
-        .spacing(12)
-        .align_y(Alignment::Center);
+    let content = widget::column::with_children(vec![
+        header.into(),
+        sections.into(),
+    ])
+    .spacing(sp.space_xxs)
+    .padding(sp.space_s);
 
-    widget::container(setting_row)
-        .padding(12)
+    widget::container(widget::scrollable(content))
         .width(Length::Fill)
         .into()
 }
