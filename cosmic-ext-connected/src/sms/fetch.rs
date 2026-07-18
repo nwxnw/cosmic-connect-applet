@@ -397,7 +397,7 @@ pub async fn fetch_older_messages_async(
         start_index + count
     );
     if let Err(e) = conversations_proxy
-        .request_conversation(thread_id, start_index as i32, count as i32)
+        .request_conversation(thread_id, start_index as i32, (start_index + count) as i32)
         .await
     {
         tracing::warn!("Failed to request older messages: {}", e);
