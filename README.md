@@ -92,15 +92,16 @@ sudo apt install -y build-essential cmake pkgconf \
 
 ```sh
 just build-release
-sudo just install
+just install
 ```
 
 Then add **Connected** to your COSMIC panel via Settings > Desktop > Panel > Applets.
 
 Uninstall:
 ```sh
-sudo just uninstall
+just uninstall
 ```
+If you previously installed via sudo just install, run sudo just uninstall-system once to clear the old system copy.
 
 ## Usage
 

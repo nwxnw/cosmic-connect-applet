@@ -1,5 +1,9 @@
 # Changelog
 
+## [0.7.0] - TBD
+### Changed
+- **`just install` no longer requires sudo.** Building from source now installs to `~/.local` by default. 
+
 ## [0.6.0] - 2026-06-24
 
 ### Added

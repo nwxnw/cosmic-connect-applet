@@ -6,8 +6,10 @@ name := 'cosmic-ext-connected'
 export APPID := 'io.github.nwxnw.cosmic-ext-connected'
 
 # Installation paths (overridable via env vars for Flatpak builds)
+# Default prefix is user-local, so `just install` needs no sudo.
+# System-wide install remains available: `sudo just prefix=/usr install`
 rootdir := ''
-prefix := '/usr'
+prefix := env_var('HOME') / '.local'
 base-dir := absolute_path(clean(rootdir / prefix))
 export INSTALL_DIR := base-dir / 'share'
 
@@ -40,12 +42,14 @@ run-standalone:
 run-debug:
     RUST_LOG=cosmic_ext_connected=debug cargo run -p {{name}} -- --standalone
 
-# Install pre-built applet to system (requires sudo)
-# Usage: cargo build --release && sudo just install
+# Install pre-built applet for current user (no sudo)
+# Usage: cargo build --release && just install
 install:
+    @[ "$(id -u)" -ne 0 ] || [ -n "${BIN_DIR:-}" ] || { echo "Run 'just install' WITHOUT sudo - this is a per-user install." >&2; exit 1; }
     install -Dm0755 target/release/{{name}} {{bin_dir}}/{{name}}
     install -Dm0755 data/{{APPID}}.sh {{bin_dir}}/{{name}}.sh
     install -Dm0644 data/{{APPID}}.desktop {{app_dir}}/{{APPID}}.desktop
+    @[ -n "${BIN_DIR:-}" ] || sed -i 's|^Exec=.*|Exec={{bin_dir}}/{{name}}|' {{app_dir}}/{{APPID}}.desktop
     install -Dm0644 data/{{APPID}}.metainfo.xml {{metainfo_dir}}/{{APPID}}.metainfo.xml
     install -Dm0644 data/icons/hicolor/scalable/apps/{{APPID}}.svg {{icon_dir}}/{{APPID}}.svg
     install -Dm0644 data/icons/hicolor/scalable/apps/{{APPID}}-symbolic.svg {{icon_dir}}/{{APPID}}-symbolic.svg
@@ -60,9 +64,16 @@ install:
     @echo "  2. Click 'Add Widget' and find 'Connected'"
     @echo ""
     @echo "To reload after changes: killall cosmic-panel"
+    @if [ -e /usr/bin/{{name}} ]; then \
+        echo ""; \
+        echo "NOTE: a system-wide install still exists at /usr/bin/{{name}}."; \
+        echo "It is now shadowed but not removed. Clean it up with:"; \
+        echo "    sudo just uninstall-system"; \
+    fi
 
-# Uninstall the applet from the system (requires sudo)
+# Uninstall the per-user applet (no sudo)
 uninstall:
+    @[ "$(id -u)" -ne 0 ] || [ -n "${BIN_DIR:-}" ] || { echo "Run 'just uninstall' WITHOUT sudo - this is a per-user install." >&2; exit 1; }
     rm -f {{bin_dir}}/{{name}}
     rm -f {{bin_dir}}/{{name}}.sh
     rm -f {{app_dir}}/{{APPID}}.desktop
@@ -74,6 +85,19 @@ uninstall:
     rm -f {{icon_dir}}/{{APPID}}-split-symbolic.svg
     @echo "Uninstalled {{name}}"
     @echo "Restart cosmic-panel to remove from panel: killall cosmic-panel"
+
+# Remove a legacy system-wide install left by the old `sudo just install`
+# Usage: sudo just uninstall-system
+uninstall-system:
+    rm -f /usr/bin/{{name}} /usr/bin/{{name}}.sh
+    rm -f /usr/share/applications/{{APPID}}.desktop
+    rm -f /usr/share/metainfo/{{APPID}}.metainfo.xml
+    rm -f /usr/share/icons/hicolor/scalable/apps/{{APPID}}.svg
+    rm -f /usr/share/icons/hicolor/scalable/apps/{{APPID}}-symbolic.svg
+    rm -f /usr/share/icons/hicolor/scalable/apps/{{APPID}}-disconnected-symbolic.svg
+    rm -f /usr/share/icons/hicolor/scalable/apps/{{APPID}}-merged-symbolic.svg
+    rm -f /usr/share/icons/hicolor/scalable/apps/{{APPID}}-split-symbolic.svg
+    @echo "Removed system-wide install from /usr"
 
 # Run tests
 test:
