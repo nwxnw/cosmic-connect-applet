@@ -902,6 +902,49 @@ pub fn conversation_message_subscription(
                     loop {
                         let now = tokio::time::Instant::now();
 
+                        // Phase-1 completion: full cached page already delivered.
+                        //
+                        // The daemon's RequestConversationWorker serves messages from its
+                        // local store and, when it satisfies the whole request from cache
+                        // (`numHandled >= howMany`), returns WITHOUT emitting
+                        // `conversationLoaded` (docs/SMS.md). Phase 1 then has no signal-driven
+                        // completion and would sit on the MESSAGE_SUBSCRIPTION_TIMEOUT_SECS hard
+                        // timeout. Detect it locally: a full page of per-message signals means
+                        // the initial load is done. The subscription keeps running (phase 3) to
+                        // catch later phone data, so completing now loses nothing.
+                        if !load_complete_emitted
+                            && !local_store_done
+                            && received_message_count >= messages_per_page as usize
+                        {
+                            tracing::info!(
+                                "Subscription: thread {} received full page ({} messages, \
+                                conversationLoaded withheld), signaling load complete",
+                                thread_id,
+                                received_message_count
+                            );
+                            local_store_done = true;
+                            load_complete_emitted = true;
+                            return Some((
+                                Message::ConversationLoadComplete {
+                                    thread_id,
+                                    total_count: total_message_count.unwrap_or(0),
+                                },
+                                ConversationMessageState::Listening {
+                                    conn,
+                                    stream,
+                                    thread_id,
+                                    device_id,
+                                    messages_per_page,
+                                    local_store_done,
+                                    total_message_count,
+                                    phone_deadline,
+                                    load_complete_emitted,
+                                    received_message_count,
+                                    retry_attempted,
+                                },
+                            ));
+                        }
+
                         // Check local store hard timeout (Phase 1 safety net)
                         if let Some(lsd) = local_store_deadline {
                             if !local_store_done && !load_complete_emitted && now >= lsd {

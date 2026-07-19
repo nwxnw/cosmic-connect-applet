@@ -49,8 +49,9 @@ pub mod sms {
     pub const MESSAGE_FETCH_TIMEOUT_SECS: u64 = 10;
 
     /// Hard timeout for the local store phase of message loading (seconds).
-    /// Safety net if conversationLoaded signal never arrives. After this fires,
-    /// ConversationLoadComplete is emitted but the subscription continues.
+    /// Safety net if conversationLoaded signal never arrives. Full cached pages
+    /// now complete via the page-satisfied condition and this is the fallback
+    /// for genuine stalls
     pub const MESSAGE_SUBSCRIPTION_TIMEOUT_SECS: u64 = 20;
 
     /// How long to wait for the phone to start responding with message data after
