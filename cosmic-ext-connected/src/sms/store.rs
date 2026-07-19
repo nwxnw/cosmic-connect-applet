@@ -23,6 +23,7 @@ use kdeconnect_dbus::plugins::{
     is_address_valid, ConversationSummary, MessageType, SmsMessage, OPTIMISTIC_MESSAGE_UID,
 };
 use kdeconnect_dbus::{normalize_phone_number, phone_suffix};
+use std::collections::hash_map::Entry;
 use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 use tokio::sync::Mutex;
@@ -431,6 +432,72 @@ impl SmsConversationStore {
                 }
 
                 // Transition from loading spinner to showing data (but keep sync indicator)
+                if matches!(
+                    self.sms_loading_state,
+                    SmsLoadingState::LoadingConversations(_)
+                ) {
+                    self.sms_loading_state = SmsLoadingState::Idle;
+                }
+                (cosmic::app::Task::none(), SmsReply::NoOp)
+            }
+
+            Message::ConversationsBatchReceived {
+                device_id,
+                conversations,
+            } => {
+                if self.sms_device_id.as_ref() != Some(&device_id) {
+                    return (cosmic::app::Task::none(), SmsReply::NoOp);
+                }
+                if conversations.is_empty() {
+                    return (cosmic::app::Task::none(), SmsReply::NoOp);
+                }
+
+                tracing::debug!(
+                    "Conversation batch: {} entries for device {}",
+                    conversations.len(),
+                    device_id
+                );
+
+                // Upsert through a map. The per-item linear 'find' in
+                // ConversationReceived is fine for one conversation but
+                // quadratic across a thousand-entry drain.
+                let mut by_thread: HashMap<i64, ConversationSummary> = self
+                    .raw_conversations
+                    .drain(..)
+                    .map(|cs| (cs.thread_id, cs))
+                    .collect();
+
+                for conversation in conversations {
+                    let key = (device_id.clone(), conversation.thread_id);
+                    let current = self.last_seen_sms.get(&key).copied();
+                    if current.is_none() || current < Some(conversation.timestamp) {
+                        self.last_seen_sms.insert(key, conversation.timestamp);
+                    }
+
+                    match by_thread.entry(conversation.thread_id) {
+                        Entry::Occupied(mut slot) => {
+                            if conversation.timestamp > slot.get().timestamp {
+                                slot.insert(conversation);
+                            }
+                        }
+                        Entry::Vacant(slot) => {
+                            slot.insert(conversation);
+                        }
+                    }
+                }
+
+                self.raw_conversations = by_thread.into_values().collect();
+
+                // Sort and truncate once per batch, not once per conversation.
+                // thread_id is the tiebreak so HashMap iteration order can't
+                // make the list unstable between equal timestamps
+                self.raw_conversations
+                    .sort_by_key(|cs| (std::cmp::Reverse(cs.timestamp), cs.thread_id));
+                self.raw_conversations
+                    .truncate(kdeconnect_dbus::plugins::MAX_CONVERSATIONS);
+
+                self.rederive_conversations(ctx.config);
+
                 if matches!(
                     self.sms_loading_state,
                     SmsLoadingState::LoadingConversations(_)

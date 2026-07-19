@@ -274,6 +274,13 @@ pub enum Message {
         device_id: String,
         conversation: ConversationSummary,
     },
+    /// Bulk conversation delivery from the cached-drain paths. Carries a whole
+    /// drain in one message so the store sorts, truncates, and re-derives once
+    /// per batch instead of once per conversation.
+    ConversationsBatchReceived {
+        device_id: String,
+        conversations: Vec<ConversationSummary>,
+    },
     /// Conversation list sync started (show loading indicator)
     ConversationSyncStarted { device_id: String },
     /// Conversation list sync complete (hide loading indicator)
@@ -1569,6 +1576,7 @@ impl Application for ConnectApplet {
             | Message::BubbleHintTimer
             | Message::BubbleLongPressComplete
             | Message::ConversationLoadStarted { .. }
+            | Message::ConversationsBatchReceived { .. }
             | Message::ConversationMessageReceived { .. }
             | Message::ConversationStoreLoaded { .. }
             | Message::ConversationLoadComplete { .. }

@@ -205,7 +205,7 @@ fn merge_group(mut threads: Vec<&ConversationSummary>) -> LogicalConversation {
 
     let unread_count = threads.iter().filter(|cs| cs.unread).count();
 
-    tracing::info!(
+    tracing::debug!(
         "merge_decision: primary={} merged={:?} sub_id={} canonical_addrs={:?}",
         primary.thread_id,
         merged_thread_ids,

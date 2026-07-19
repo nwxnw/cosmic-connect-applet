@@ -215,12 +215,11 @@ pub fn conversation_list_subscription(
                             device_id
                         );
 
-                        // Emit the first one and store the rest
-                        let first = initial_conversations.remove(0);
+                        // Emit the whole cached set in one batch
                         return Some((
-                            Message::ConversationReceived {
+                            Message::ConversationsBatchReceived {
                                 device_id: device_id.clone(),
-                                conversation: first,
+                                conversations: std::mem::take(&mut initial_conversations),
                             },
                             ConversationListState::EmittingCached {
                                 conn,
@@ -264,18 +263,16 @@ pub fn conversation_list_subscription(
                     mut pending_conversations,
                     known_conversations,
                 } => {
-                    // Emit cached conversations one at a time
+                    // Emit cached batch conversations
                     if !pending_conversations.is_empty() {
-                        let conversation = pending_conversations.remove(0);
                         tracing::debug!(
-                            "Emitting cached conversation: thread {} ({} remaining)",
-                            conversation.thread_id,
+                            "Emitting cached batch: {} conversations",
                             pending_conversations.len()
                         );
                         return Some((
-                            Message::ConversationReceived {
+                            Message::ConversationsBatchReceived {
                                 device_id: device_id.clone(),
-                                conversation,
+                                conversations: std::mem::take(&mut pending_conversations),
                             },
                             ConversationListState::EmittingCached {
                                 conn,
@@ -338,11 +335,10 @@ pub fn conversation_list_subscription(
                         let now = tokio::time::Instant::now();
 
                         if !pending_conversations.is_empty() {
-                            let conversation = pending_conversations.remove(0);
                             return Some((
-                                Message::ConversationReceived {
+                                Message::ConversationsBatchReceived {
                                     device_id: device_id.clone(),
-                                    conversation,
+                                    conversations: std::mem::take(&mut pending_conversations),
                                 },
                                 ConversationListState::Listening {
                                     conn,
