@@ -425,44 +425,6 @@ impl SmsConversationStore {
 
     pub fn update(&mut self, msg: Message, ctx: &SmsCtx) -> (cosmic::app::Task<Message>, SmsReply) {
         match msg {
-            // === Batch 1: Conversation list ===
-            Message::ConversationsLoaded(convs) => {
-                // Slow path: full sync complete from phone (legacy batch loading)
-                tracing::info!(
-                    "Background sync complete: {} conversations (had {} cached)",
-                    convs.len(),
-                    self.conversations.len()
-                );
-                // Only update if we got conversations back
-                if !convs.is_empty() {
-                    // Pre-populate last_seen_sms to prevent false notifications
-                    // for messages that already exist in loaded conversations
-                    if let Some(device_id) = self.sms_device_id.clone() {
-                        for conv in &convs {
-                            let key = (device_id.clone(), conv.thread_id);
-                            let current = self.last_seen_sms.get(&key).copied();
-                            if current.is_none() || current < Some(conv.timestamp) {
-                                self.last_seen_sms.insert(key, conv.timestamp);
-                            }
-                        }
-                    }
-
-                    self.raw_conversations = convs;
-                    self.rederive_conversations(ctx.config);
-                    self.conversation_list_key = self.conversation_list_key.wrapping_add(1);
-                }
-                // Background sync complete - clear sync indicator
-                self.conversation_sync_active = false;
-                // Reset loading state if still loading
-                if matches!(
-                    self.sms_loading_state,
-                    SmsLoadingState::LoadingConversations(_)
-                ) {
-                    self.sms_loading_state = SmsLoadingState::Idle;
-                }
-                (cosmic::app::Task::none(), SmsReply::NoOp)
-            }
-
             Message::SmsPrefetchReady(device_id, conversations) => {
                 if !conversations.is_empty() {
                     self.sms_prefetch = Some((device_id, conversations));

@@ -31,20 +31,6 @@ pub mod sms {
     /// Shorter since we only need incremental updates.
     pub const CONVERSATION_TIMEOUT_CACHED_SECS: u64 = 3;
 
-    /// Timeout for conversation loading on initial load (seconds).
-    /// Longer to allow phone time to send all data.
-    pub const CONVERSATION_TIMEOUT_INITIAL_SECS: u64 = 15;
-
-    /// Activity timeout - stop collecting if no signals received (milliseconds).
-    /// After receiving data, we stop waiting this long after the last signal.
-    pub const SIGNAL_ACTIVITY_TIMEOUT_MS: u64 = 500;
-
-    /// Interval for checking timeout conditions during signal collection (milliseconds).
-    pub const TIMEOUT_CHECK_INTERVAL_MS: u64 = 50;
-
-    /// Timeout for draining remaining buffered signals (milliseconds).
-    pub const SIGNAL_DRAIN_TIMEOUT_MS: u64 = 5;
-
     /// Hard timeout for the local store phase of message loading (seconds).
     /// Safety net if conversationLoaded signal never arrives. Full cached pages
     /// now complete via the page-satisfied condition and this is the fallback
@@ -81,10 +67,6 @@ pub mod sms {
 
     /// How long to wait for the retry bootstrap attempt.
     pub const CONVERSATION_LIST_RETRY_WAIT_MS: u64 = 6000;
-
-    /// Polling delays for fallback conversation loading (milliseconds).
-    /// We poll multiple times with increasing delays to give the phone time to sync.
-    pub const FALLBACK_POLLING_DELAYS_MS: &[u64] = &[500, 1000, 1500, 2000, 3000];
 }
 
 /// Refresh and polling interval constants.

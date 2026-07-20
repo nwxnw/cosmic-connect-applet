@@ -16,9 +16,7 @@ use crate::media::{
     fetch_media_info_async, media_action_async, view_media_controls, MediaAction,
     MediaControlsParams,
 };
-use crate::sms::{
-    fetch_conversations_async, prefetch_conversations_async, SmsConversationStore, SmsViewMode,
-};
+use crate::sms::{prefetch_conversations_async, SmsConversationStore, SmsViewMode};
 use crate::subscriptions::{
     call_notification_subscription, dbus_signal_subscription, sms_notification_subscription,
 };
@@ -157,8 +155,6 @@ pub enum Message {
     OpenConversation(i64),
     /// Close conversation and return to conversation list
     CloseConversation,
-    /// Conversations fully synced from device (background sync complete)
-    ConversationsLoaded(Vec<ConversationSummary>),
     /// Contacts loaded asynchronously for a device
     ContactsLoaded(String, ContactLookup),
     /// User clicked "Load More" button in conversation list
@@ -1564,7 +1560,6 @@ impl Application for ConnectApplet {
             // CloseConversation, OpenNewMessage, CloseNewMessage) stay inline above
             // because they touch view_mode (app-owned).
             Message::SmsPrefetchReady(_, _)
-            | Message::ConversationsLoaded(_)
             | Message::ContactsLoaded(_, _)
             | Message::ConversationReceived { .. }
             | Message::ConversationSyncStarted { .. }
