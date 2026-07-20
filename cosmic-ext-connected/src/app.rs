@@ -1221,20 +1221,21 @@ impl Application for ConnectApplet {
                 // Increment key to reset scroll position
                 self.sms.conversation_list_key = self.sms.conversation_list_key.wrapping_add(1);
 
-                // Refresh conversations in background
-                if let (Some(conn), Some(device_id)) =
-                    (&self.dbus_connection, &self.sms.sms_device_id)
-                {
-                    if self.sms.conversations.is_empty() {
-                        self.sms.sms_loading_state =
-                            SmsLoadingState::LoadingConversations(LoadingPhase::Connecting);
-                    }
-                    return cosmic::app::Task::perform(
-                        fetch_conversations_async(conn.clone(), device_id.clone()),
-                        cosmic::Action::App,
-                    );
+                // The conversation-list subscription is still live and already holds
+                // everything a refetch would find. Re-arm it if an error tore it down while
+                // the user was in the thread - SmsError (store.rs:675) clears the flag
+                // regardless of which subsystem raised it - then let it drive the list.
+                if self.sms.sms_device_id.is_some() {
+                    self.sms.conversation_list_subscription_active = true;
                 }
-                self.sms.sms_loading_state = SmsLoadingState::Idle;
+
+                if self.sms.conversations.is_empty() {
+                    self.sms.sms_loading_state = if self.sms.conversation_list_subscription_active {
+                        SmsLoadingState::LoadingConversations(LoadingPhase::Connecting)
+                    } else {
+                        SmsLoadingState::Idle
+                    };
+                }
             }
 
             // Subscription-based conversation list loading handlers
