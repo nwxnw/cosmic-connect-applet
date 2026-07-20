@@ -53,10 +53,6 @@ pub mod sms {
     /// the conversation list on cold start.
     pub const CONVERSATION_LIST_PHONE_WAIT_MS: u64 = 8000;
 
-    /// How often to re-read the daemon's cached conversation heads during
-    /// initial conversation list bootstrap.
-    pub const CONVERSATION_LIST_CACHE_POLL_MS: u64 = 1000;
-
     /// After we have seen activity during bootstrap, treat the conversation
     /// list as settled once it stays quiet for this long.
     pub const CONVERSATION_LIST_QUIET_MS: u64 = 2000;

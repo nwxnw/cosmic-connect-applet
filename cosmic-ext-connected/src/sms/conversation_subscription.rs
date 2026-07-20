@@ -7,9 +7,8 @@
 use crate::app::Message;
 use crate::constants::dbus::RETRY_DELAY_SECS;
 use crate::constants::sms::{
-    CONVERSATION_LIST_CACHE_POLL_MS, CONVERSATION_LIST_PHONE_WAIT_MS, CONVERSATION_LIST_QUIET_MS,
-    CONVERSATION_LIST_RETRY_THRESHOLD, CONVERSATION_LIST_RETRY_WAIT_MS,
-    CONVERSATION_TIMEOUT_CACHED_SECS,
+    CONVERSATION_LIST_PHONE_WAIT_MS, CONVERSATION_LIST_QUIET_MS, CONVERSATION_LIST_RETRY_THRESHOLD,
+    CONVERSATION_LIST_RETRY_WAIT_MS, CONVERSATION_TIMEOUT_CACHED_SECS,
 };
 use futures_util::StreamExt;
 use kdeconnect_dbus::plugins::{
@@ -51,12 +50,8 @@ enum ConversationListState {
         cold_start: bool,
         /// Tracks the newest timestamp we have emitted per thread.
         known_conversations: HashMap<i64, i64>,
-        /// Pending conversations to emit one at a time.
-        pending_conversations: Vec<ConversationSummary>,
         /// Last time we observed meaningful bootstrap activity.
         last_activity: Option<tokio::time::Instant>,
-        /// Next time we should re-read cached conversations from the daemon.
-        next_cache_poll: tokio::time::Instant,
         /// Number of bootstrap retries already issued.
         retry_count: u8,
     },
@@ -248,9 +243,7 @@ pub fn conversation_list_subscription(
                             sync_complete_emitted: false,
                             cold_start: true,
                             known_conversations,
-                            pending_conversations: Vec::new(),
                             last_activity: None,
-                            next_cache_poll: now,
                             retry_count: 0,
                         },
                     ))
@@ -307,12 +300,10 @@ pub fn conversation_list_subscription(
                             sync_complete_emitted: false,
                             cold_start: false,
                             known_conversations,
-                            pending_conversations: Vec::new(),
                             // Warm start already has cached rows on screen. Leave activity unset
                             // so the cached bootstrap deadline remains the settle condition unless
                             // real post-bootstrap updates arrive.
                             last_activity: None,
-                            next_cache_poll: now,
                             retry_count: 0,
                         },
                     ))
@@ -326,53 +317,11 @@ pub fn conversation_list_subscription(
                     mut sync_complete_emitted,
                     cold_start,
                     mut known_conversations,
-                    mut pending_conversations,
                     mut last_activity,
-                    mut next_cache_poll,
                     mut retry_count,
                 } => {
                     loop {
                         let now = tokio::time::Instant::now();
-
-                        if !pending_conversations.is_empty() {
-                            return Some((
-                                Message::ConversationsBatchReceived {
-                                    device_id: device_id.clone(),
-                                    conversations: std::mem::take(&mut pending_conversations),
-                                },
-                                ConversationListState::Listening {
-                                    conn,
-                                    conversations_proxy,
-                                    stream,
-                                    device_id,
-                                    bootstrap_deadline,
-                                    sync_complete_emitted,
-                                    cold_start,
-                                    known_conversations,
-                                    pending_conversations,
-                                    last_activity,
-                                    next_cache_poll,
-                                    retry_count,
-                                },
-                            ));
-                        }
-
-                        if !sync_complete_emitted && now >= next_cache_poll {
-                            let cached =
-                                fetch_cached_conversations(&conversations_proxy, &device_id).await;
-                            let discovered =
-                                collect_new_conversations(cached, &mut known_conversations);
-                            next_cache_poll = tokio::time::Instant::now()
-                                + tokio::time::Duration::from_millis(
-                                    CONVERSATION_LIST_CACHE_POLL_MS,
-                                );
-
-                            if !discovered.is_empty() {
-                                last_activity = Some(tokio::time::Instant::now());
-                                pending_conversations = discovered;
-                                continue;
-                            }
-                        }
 
                         if !sync_complete_emitted {
                             if let Some(last) = last_activity {
@@ -401,9 +350,7 @@ pub fn conversation_list_subscription(
                                             sync_complete_emitted,
                                             cold_start,
                                             known_conversations,
-                                            pending_conversations,
                                             last_activity,
-                                            next_cache_poll,
                                             retry_count,
                                         },
                                     ));
@@ -432,7 +379,6 @@ pub fn conversation_list_subscription(
                                         + tokio::time::Duration::from_millis(
                                             CONVERSATION_LIST_RETRY_WAIT_MS,
                                         );
-                                    next_cache_poll = tokio::time::Instant::now();
                                     continue;
                                 }
 
@@ -456,9 +402,7 @@ pub fn conversation_list_subscription(
                                         sync_complete_emitted,
                                         cold_start,
                                         known_conversations,
-                                        pending_conversations,
                                         last_activity,
-                                        next_cache_poll,
                                         retry_count,
                                     },
                                 ));
@@ -472,8 +416,6 @@ pub fn conversation_list_subscription(
                         } else {
                             let mut sleep_duration =
                                 bootstrap_deadline.saturating_duration_since(now);
-                            sleep_duration =
-                                sleep_duration.min(next_cache_poll.saturating_duration_since(now));
                             if let Some(last) = last_activity {
                                 let quiet_deadline = last
                                     + tokio::time::Duration::from_millis(
@@ -541,9 +483,7 @@ pub fn conversation_list_subscription(
                                                                         sync_complete_emitted,
                                                                         cold_start,
                                                                         known_conversations,
-                                                                        pending_conversations,
                                                                         last_activity,
-                                                                        next_cache_poll,
                                                                         retry_count,
                                                                     },
                                                                 ));
@@ -585,9 +525,7 @@ pub fn conversation_list_subscription(
                                                                         sync_complete_emitted,
                                                                         cold_start,
                                                                         known_conversations,
-                                                                        pending_conversations,
                                                                         last_activity,
-                                                                        next_cache_poll,
                                                                         retry_count,
                                                                     },
                                                                 ));
@@ -666,22 +604,6 @@ fn remember_signal_conversation(
     } else {
         None
     }
-}
-
-fn collect_new_conversations(
-    mut conversations: Vec<ConversationSummary>,
-    known_conversations: &mut HashMap<i64, i64>,
-) -> Vec<ConversationSummary> {
-    conversations.sort_by_key(|c| std::cmp::Reverse(c.timestamp));
-    let mut discovered = Vec::new();
-    for conversation in conversations {
-        let known = known_conversations.get(&conversation.thread_id).copied();
-        if known.is_none() || known < Some(conversation.timestamp) {
-            known_conversations.insert(conversation.thread_id, conversation.timestamp);
-            discovered.push(conversation);
-        }
-    }
-    discovered
 }
 
 async fn fetch_cached_conversations(
