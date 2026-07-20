@@ -6,13 +6,13 @@
 use crate::app::Message;
 use crate::constants::sms::{
     CONVERSATION_TIMEOUT_CACHED_SECS, CONVERSATION_TIMEOUT_INITIAL_SECS,
-    FALLBACK_POLLING_DELAYS_MS, MESSAGE_FETCH_TIMEOUT_SECS, SIGNAL_ACTIVITY_TIMEOUT_MS,
-    SIGNAL_DRAIN_TIMEOUT_MS, TIMEOUT_CHECK_INTERVAL_MS,
+    FALLBACK_POLLING_DELAYS_MS, SIGNAL_ACTIVITY_TIMEOUT_MS, SIGNAL_DRAIN_TIMEOUT_MS,
+    TIMEOUT_CHECK_INTERVAL_MS,
 };
 use futures_util::StreamExt;
 use kdeconnect_dbus::plugins::{
-    parse_conversations, parse_sms_message, ConversationSummary, ConversationsProxy, SmsMessage,
-    SmsProxy, MAX_CONVERSATIONS,
+    parse_conversations, parse_sms_message, ConversationSummary, ConversationsProxy, SmsProxy,
+    MAX_CONVERSATIONS,
 };
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -334,8 +334,12 @@ async fn fetch_conversations_fallback(conversations_proxy: &ConversationsProxy<'
     Message::ConversationsLoaded(best_result)
 }
 
-/// Fetch older messages for pagination (starting from a given offset).
-pub async fn fetch_older_messages_async(
+/// Ask the daemon to serve an older page of a conversation. The already-running
+/// per-thread subscription receives the resulting `conversationUpdated` signals
+/// through its normal phase-3 path (`subscriptions.rs`), so this fires the
+/// request and returns - it does NOT collect the reply. Completion is detected
+/// in the store from the streamed messages / `ConversationStoreLoaded`.
+pub async fn request_older_messages_async(
     conn: Arc<Mutex<Connection>>,
     device_id: String,
     thread_id: i64,
@@ -343,11 +347,8 @@ pub async fn fetch_older_messages_async(
     count: u32,
 ) -> Message {
     let conn = conn.lock().await;
-
-    // The conversations interface is on the device path
     let device_path = format!("{}/devices/{}", kdeconnect_dbus::BASE_PATH, device_id);
 
-    // Build conversations proxy on the device path
     let conversations_proxy = match ConversationsProxy::builder(&conn)
         .path(device_path.as_str())
         .ok()
@@ -356,150 +357,47 @@ pub async fn fetch_older_messages_async(
         Some(fut) => match fut.await {
             Ok(p) => p,
             Err(e) => {
-                tracing::warn!("Failed to create conversations proxy: {}", e);
-                return Message::OlderMessagesLoaded(thread_id, Vec::new(), false, None);
+                tracing::warn!("Failed to build conversations proxy for pagination: {}", e);
+                return Message::OlderMessagesRequested {
+                    thread_id,
+                    ok: false,
+                };
             }
         },
         None => {
-            return Message::OlderMessagesLoaded(thread_id, Vec::new(), false, None);
+            return Message::OlderMessagesRequested {
+                thread_id,
+                ok: false,
+            }
         }
     };
 
-    // Set up signal stream for conversationUpdated BEFORE requesting
-    let mut updated_stream = match conversations_proxy.receive_conversation_updated().await {
-        Ok(stream) => stream,
-        Err(e) => {
-            tracing::warn!(
-                "Failed to subscribe to conversationUpdated for older messages: {}",
-                e
-            );
-            return Message::OlderMessagesLoaded(thread_id, Vec::new(), false, None);
-        }
-    };
-
-    // Set up signal stream for conversationLoaded
-    let mut loaded_stream = match conversations_proxy.receive_conversation_loaded().await {
-        Ok(stream) => stream,
-        Err(e) => {
-            tracing::warn!(
-                "Failed to subscribe to conversationLoaded for older messages: {}",
-                e
-            );
-            return Message::OlderMessagesLoaded(thread_id, Vec::new(), false, None);
-        }
-    };
-
-    // Request the specific conversation with pagination offset
     tracing::debug!(
-        "Requesting older messages for thread {} (messages {}-{})",
+        "requesting older messages for thread {} (messages {}-{})",
         thread_id,
         start_index,
         start_index + count
     );
-    if let Err(e) = conversations_proxy
+    match conversations_proxy
         .request_conversation(thread_id, start_index as i32, (start_index + count) as i32)
         .await
     {
-        tracing::warn!("Failed to request older messages: {}", e);
-        return Message::OlderMessagesLoaded(thread_id, Vec::new(), false, None);
-    }
-
-    // Collect messages from signals until conversationLoaded or timeout
-    // Use uid (unique message ID) as key for reliable deduplication
-    let mut messages_map: HashMap<i32, SmsMessage> = HashMap::new();
-    let mut total_message_count: Option<u64> = None;
-    let timeout = tokio::time::Duration::from_secs(MESSAGE_FETCH_TIMEOUT_SECS);
-    let start_time = tokio::time::Instant::now();
-
-    loop {
-        tokio::select! {
-            // Check for conversationUpdated signals
-            Some(signal) = updated_stream.next() => {
-                match signal.args() {
-                    Ok(args) => {
-                        if let Some(msg) = parse_sms_message(&args.msg) {
-                            if msg.thread_id == thread_id {
-                                // Use uid as key for reliable deduplication
-                                messages_map.insert(msg.uid, msg);
-                                tracing::debug!(
-                                    "Received older message for thread {}, total: {}",
-                                    thread_id,
-                                    messages_map.len()
-                                );
-                            }
-                        }
-                    }
-                    Err(e) => {
-                        tracing::warn!("Failed to parse conversationUpdated signal: {}", e);
-                    }
-                }
-            }
-            // Check for conversationLoaded signal
-            Some(signal) = loaded_stream.next() => {
-                match signal.args() {
-                    Ok(args) => {
-                        if args.conversation_id == thread_id {
-                            // Capture the total message count for pagination
-                            total_message_count = Some(args.message_count);
-                            tracing::info!(
-                                "Older messages loaded for thread {}, total {} messages, got {}",
-                                thread_id,
-                                args.message_count,
-                                messages_map.len()
-                            );
-                            // Drain any remaining buffered conversationUpdated signals
-                            'drain: loop {
-                                tokio::select! {
-                                    biased;
-                                    Some(signal) = updated_stream.next() => {
-                                        if let Ok(args) = signal.args() {
-                                            if let Some(msg) = parse_sms_message(&args.msg) {
-                                                if msg.thread_id == thread_id {
-                                                    messages_map.insert(msg.uid, msg);
-                                                }
-                                            }
-                                        }
-                                    }
-                                    _ = tokio::time::sleep(tokio::time::Duration::from_millis(SIGNAL_DRAIN_TIMEOUT_MS)) => {
-                                        break 'drain;
-                                    }
-                                }
-                            }
-                            break;
-                        }
-                    }
-                    Err(e) => {
-                        tracing::warn!("Failed to parse conversationLoaded signal: {}", e);
-                    }
-                }
-            }
-            // Timeout
-            _ = tokio::time::sleep_until(start_time + timeout) => {
-                tracing::warn!(
-                    "Timeout waiting for older messages, got {} messages",
-                    messages_map.len()
-                );
-                break;
+        Ok(()) => Message::OlderMessagesRequested {
+            thread_id,
+            ok: true,
+        },
+        Err(e) => {
+            tracing::warn!(
+                "Failed to request older messages for thread {}: {}",
+                thread_id,
+                e
+            );
+            Message::OlderMessagesRequested {
+                thread_id,
+                ok: false,
             }
         }
     }
-
-    // Convert map to sorted vector (oldest first)
-    let mut messages: Vec<SmsMessage> = messages_map.into_values().collect();
-    messages.sort_by_key(|m| m.date);
-
-    // Determine if there are more messages available using heuristic
-    // (will be overridden by total_message_count if available)
-    let has_more_heuristic = messages.len() >= count as usize;
-
-    tracing::info!(
-        "Loaded {} older messages for thread {}, has_more_heuristic: {}, total: {:?}",
-        messages.len(),
-        thread_id,
-        has_more_heuristic,
-        total_message_count
-    );
-    Message::OlderMessagesLoaded(thread_id, messages, has_more_heuristic, total_message_count)
 }
 
 /// Timeout for waiting for attachment retrieval from phone (seconds).

@@ -45,9 +45,6 @@ pub mod sms {
     /// Timeout for draining remaining buffered signals (milliseconds).
     pub const SIGNAL_DRAIN_TIMEOUT_MS: u64 = 5;
 
-    /// Timeout for loading messages in a conversation thread (seconds).
-    pub const MESSAGE_FETCH_TIMEOUT_SECS: u64 = 10;
-
     /// Hard timeout for the local store phase of message loading (seconds).
     /// Safety net if conversationLoaded signal never arrives. Full cached pages
     /// now complete via the page-satisfied condition and this is the fallback

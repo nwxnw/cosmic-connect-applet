@@ -189,8 +189,9 @@ pub enum Message {
     SendNewMessage,
     /// New message send result
     NewMessageSendResult(Result<String, String>),
-    /// Older messages fetched successfully (thread_id, messages, has_more_heuristic, total_count)
-    OlderMessagesLoaded(i64, Vec<SmsMessage>, bool, Option<u64>),
+    /// Ack that an older-page `requestConversation` was fired (`ok`) or failed.
+    /// Carries no messages - those stream in via `ConversationMessagesReceived`.
+    OlderMessagesRequested { thread_id: i64, ok: bool },
     /// Message thread scrolled - used for prefetching older messages
     MessageThreadScrolled(scrollable::Viewport),
     /// User started pressing a message bubble (for long-press copy)
@@ -1178,8 +1179,7 @@ impl Application for ConnectApplet {
                     // Reset pagination state
                     self.sms.messages_loaded_count = 0;
                     self.sms.messages_has_more = true;
-                    self.sms.scroll_offset_before_load = None;
-                    self.sms.content_height_before_load = None;
+                    self.sms.older_page = None;
 
                     // Clear known message IDs for fresh deduplication
                     self.sms.known_message_ids.clear();
@@ -1569,7 +1569,7 @@ impl Application for ConnectApplet {
             | Message::ConversationSyncStarted { .. }
             | Message::ConversationSyncComplete { .. }
             | Message::LoadMoreConversations
-            | Message::OlderMessagesLoaded(..)
+            | Message::OlderMessagesRequested { .. }
             | Message::MessageThreadScrolled(_)
             | Message::BubblePressStarted { .. }
             | Message::BubblePressReleased

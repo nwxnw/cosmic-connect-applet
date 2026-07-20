@@ -9,7 +9,7 @@ use crate::constants::sms::MESSAGES_PER_PAGE;
 use crate::fl;
 use crate::sms::logical::{merge_into_logical, split_candidate_thread_ids, LogicalConversation};
 use crate::sms::{
-    conversation_list_subscription, fetch_older_messages_async, request_attachment_async,
+    conversation_list_subscription, request_attachment_async, request_older_messages_async,
     send_new_sms_async, send_sms_async, view_conversation_list, view_message_thread,
     view_new_message, ConversationListParams, MessageThreadParams, NewMessageParams,
 };
@@ -61,6 +61,23 @@ pub enum SmsViewMode {
     NewMessage,
 }
 
+/// In-flight older-page load. `Some` from firing the range request until the
+/// page settles; `None` otherwise. Replaces the OlderMessagesLoaded batch -
+/// completion is detected on the streaming path (see the two detectors below).
+pub(crate) struct OlderPageLoad {
+    /// Messages the daemon has served for this page so far, counted pre-dedup
+    /// so it tracks the daemon's `numHandled`. At `page_size` the daemon
+    /// withheld `conversationLoaded`, so this is the full-page completion signal
+    served: u32,
+    /// Requested page size (== MESSAGES_PER_PAGE).
+    page_size: u32,
+    /// `messages.len()` captured before the request, for prepend-height math.
+    len_before: usize,
+    /// Scroll offset captured before the request (position preservation).
+    scroll_offset: f32,
+    /// Content height captured before the request.
+    content_height: f32,
+}
 pub struct SmsConversationStore {
     // Active SMS device
     pub(crate) sms_device_id: Option<String>,
@@ -102,8 +119,7 @@ pub struct SmsConversationStore {
     // Message pagination / scroll preservation
     pub(crate) messages_loaded_count: u32,
     pub(crate) messages_has_more: bool,
-    pub(crate) scroll_offset_before_load: Option<f32>,
-    pub(crate) content_height_before_load: Option<f32>,
+    pub(crate) older_page: Option<OlderPageLoad>,
 
     // New-message compose
     pub(crate) new_message_recipients: Vec<(String, String)>,
@@ -150,8 +166,7 @@ impl SmsConversationStore {
             sms_sending_body: None,
             messages_loaded_count: 0,
             messages_has_more: true,
-            scroll_offset_before_load: None,
-            content_height_before_load: None,
+            older_page: None,
             new_message_recipients: Vec::new(),
             new_message_recipient_input: String::new(),
             new_message_body: widget::text_editor::Content::new(),
@@ -181,14 +196,89 @@ impl SmsConversationStore {
     /// `total_count` would falsely clamp `messages_has_more` to false.
     fn compute_messages_has_more(&self, total_count: u64, page_size: usize) -> bool {
         if self.current_merged_thread_ids.len() > 1 {
+            // Merged: fall back to the page-size heuristic.
             self.messages.len() >= page_size
-        } else if total_count > 0 && (self.messages.len() as u64) < total_count {
-            true
+        } else if total_count > 0 {
+            // Total known: definitive. Must not fall through to the heuristic below
+            (self.messages.len() as u64) < total_count
         } else {
+            // Total unknown: heuristic.
             self.messages.len() >= page_size
         }
     }
 
+    /// Settle an in-flight older page: clear the spinner, refresh pagination
+    /// counters, and preserve scroll position for the prepended content.
+    /// `page_satisfied` = full page served (has_more stays true); otherwise
+    /// `total_count` from `conversationLoaded` decides has_more (false at the top).
+    fn finalize_older_page(
+        &mut self,
+        page_satisfied: bool,
+        total_count: Option<u64>,
+    ) -> cosmic::app::Task<Message> {
+        let Some(load) = self.older_page.take() else {
+            return cosmic::app::Task::none();
+        };
+        if matches!(self.sms_loading_state, SmsLoadingState::LoadingMoreMessages) {
+            self.sms_loading_state = SmsLoadingState::Idle;
+        }
+        self.messages_loaded_count = self.messages.len() as u32;
+
+        // New messages this page actually added.
+        let prepended = self.messages.len().saturating_sub(load.len_before);
+
+        // A page that added nothing is terminal — stop paginating. Either we
+        // hold the whole thread, or the daemon can only re-serve messages we
+        // already have (total_count says how many *exist*, not how many it can
+        // serve now). Without this, has_more stays true and the prefetch
+        // re-fires on every daemon round-trip while the user sits at the top
+        // (D.10 Step 3 storm: 200+ requestConversation on a fully-loaded
+        // thread, backing up the daemon). Mirrors the old
+        // fetch_older_messages_async empty-batch terminator.
+        self.messages_has_more = if prepended == 0 {
+            false
+        } else if page_satisfied {
+            // Full page served, total withheld — heuristic (more likely).
+            self.compute_messages_has_more(0, MESSAGES_PER_PAGE as usize)
+        } else {
+            self.compute_messages_has_more(total_count.unwrap_or(0), MESSAGES_PER_PAGE as usize)
+        };
+
+        // Records which completion detector settled this page and why pagination
+        // continued or stopped — the log is otherwise silent here, so a capture
+        // cannot distinguish the full-page path from the conversationLoaded one.
+        tracing::debug!(
+            "Older page settled: detector={}, served={}, prepended={}, total={:?}, \
+             messages={}, has_more={}",
+            if page_satisfied {
+                "full-page"
+            } else {
+                "conversationLoaded"
+            },
+            load.served,
+            prepended,
+            total_count,
+            self.messages.len(),
+            self.messages_has_more
+        );
+
+        // Preserve scroll position for the prepended content.
+        if prepended > 0 {
+            const ESTIMATED_MSG_HEIGHT: f32 = 70.0;
+            let prepended_height = prepended as f32 * ESTIMATED_MSG_HEIGHT;
+            let new_content_height = load.content_height + prepended_height;
+            let new_offset = load.scroll_offset + prepended_height;
+            let relative_y = (new_offset / new_content_height).clamp(0.0, 1.0);
+            return scrollable::snap_to(
+                widget::Id::new("message-thread"),
+                scrollable::RelativeOffset {
+                    x: Some(0.0),
+                    y: Some(relative_y),
+                },
+            );
+        }
+        cosmic::app::Task::none()
+    }
     /// Re-derive `conversations` from the raw cache. Honors
     /// `config.merge_reaction_threads`: runs `merge_into_logical` when on;
     /// falls back to 1:1 `from_single` wrapping when off, and in the off
@@ -594,93 +684,20 @@ impl SmsConversationStore {
             }
 
             // === Batch 2: Message thread / scroll / bubble ===
-            Message::OlderMessagesLoaded(
-                thread_id,
-                older_msgs,
-                has_more_heuristic,
-                total_count,
-            ) => {
-                // Only reset to Idle if we're currently loading more messages
-                if matches!(self.sms_loading_state, SmsLoadingState::LoadingMoreMessages) {
-                    self.sms_loading_state = SmsLoadingState::Idle;
-                }
-
-                if self.current_merged_thread_ids.contains(&thread_id) {
-                    // Filter out messages already known (safety net for signal cross-talk)
-                    let older_msgs: Vec<_> = older_msgs
-                        .into_iter()
-                        .filter(|m| !self.known_message_ids.contains(&m.uid))
-                        .collect();
-                    for m in &older_msgs {
-                        self.known_message_ids.insert(m.uid);
-                    }
-
-                    if !older_msgs.is_empty() {
-                        let prepended_count = older_msgs.len();
-                        tracing::info!(
-                            "Prepending {} older messages to thread {} (had {}, total: {:?})",
-                            prepended_count,
-                            thread_id,
-                            self.messages.len(),
-                            total_count
-                        );
-
-                        // Prepend older messages (they come sorted oldest first)
-                        let mut combined = older_msgs;
-                        combined.append(&mut self.messages);
-                        self.messages = combined;
-
-                        // Update loaded count
-                        self.messages_loaded_count = self.messages.len() as u32;
-
-                        // Use total_count for accurate pagination if available,
-                        // otherwise fall back to heuristic
-                        self.messages_has_more = match total_count {
-                            Some(total) => (self.messages.len() as u64) < total,
-                            None => has_more_heuristic,
-                        };
-
-                        // Calculate scroll adjustment to preserve user's position
-                        // When we prepend messages, the content shifts down. We need to
-                        // scroll down by the estimated height of the prepended content.
-                        if let (Some(old_offset), Some(old_height)) = (
-                            self.scroll_offset_before_load.take(),
-                            self.content_height_before_load.take(),
-                        ) {
-                            // Estimate prepended content height (avg ~70px per message)
-                            const ESTIMATED_MSG_HEIGHT: f32 = 70.0;
-                            let prepended_height = prepended_count as f32 * ESTIMATED_MSG_HEIGHT;
-                            let new_content_height = old_height + prepended_height;
-                            let new_offset = old_offset + prepended_height;
-
-                            // Calculate relative offset (0.0 = top, 1.0 = bottom)
-                            let relative_y = (new_offset / new_content_height).clamp(0.0, 1.0);
-
-                            tracing::debug!(
-                                "Scroll adjustment: old_offset={:.1}, prepended_height={:.1}, new_relative_y={:.3}",
-                                old_offset, prepended_height, relative_y
-                            );
-
-                            return (
-                                scrollable::snap_to(
-                                    widget::Id::new("message-thread"),
-                                    scrollable::RelativeOffset {
-                                        x: Some(0.0),
-                                        y: Some(relative_y),
-                                    },
-                                ),
-                                SmsReply::NoOp,
-                            );
-                        }
-                    } else {
-                        tracing::info!("No older messages returned for thread {}", thread_id);
-                        // No more messages available
-                        self.messages_has_more = false;
-                        // Clear scroll state
-                        self.scroll_offset_before_load = None;
-                        self.content_height_before_load = None;
+            Message::OlderMessagesRequested { thread_id, ok } => {
+                if !ok {
+                    // Fire failed: abort the page so the spinner clears and the user can
+                    // retry by scrolling. has_more left as-is (still true), so retry works
+                    tracing::warn!(
+                        "Older-page request failed for thread {}, aborting page",
+                        thread_id
+                    );
+                    self.older_page = None;
+                    if matches!(self.sms_loading_state, SmsLoadingState::LoadingMoreMessages) {
+                        self.sms_loading_state = SmsLoadingState::Idle;
                     }
                 }
+                // ok == true; wait for streamed messages / ConversationStoreLoaded
                 (cosmic::app::Task::none(), SmsReply::NoOp)
             }
             Message::MessageThreadScrolled(viewport) => {
@@ -702,29 +719,32 @@ impl SmsConversationStore {
                         scroll_offset,
                         content_height
                     );
-
-                    // Store scroll state for position preservation after load
-                    self.scroll_offset_before_load = Some(scroll_offset);
-                    self.content_height_before_load = Some(content_height);
-
-                    // Trigger loading older messages (same logic as LoadMoreMessages)
+                    // Capture pre-request scroll state and start the older page.
+                    // Completion is detected on the streaming path (save count
+                    // or ConversationStoreLoaded), not from a collected reply.
                     if let (Some(conn), Some(device_id), Some(thread_id)) = (
                         ctx.conn,
                         self.sms_device_id.as_ref(),
                         self.current_thread_id,
                     ) {
                         self.sms_loading_state = SmsLoadingState::LoadingMoreMessages;
+                        self.older_page = Some(OlderPageLoad {
+                            served: 0,
+                            page_size: MESSAGES_PER_PAGE,
+                            len_before: self.messages.len(),
+                            scroll_offset,
+                            content_height,
+                        });
                         let start_index = self.messages_loaded_count;
-                        let count = MESSAGES_PER_PAGE;
 
                         return (
                             cosmic::app::Task::perform(
-                                fetch_older_messages_async(
+                                request_older_messages_async(
                                     conn.clone(),
                                     device_id.clone(),
                                     thread_id,
                                     start_index,
-                                    count,
+                                    MESSAGES_PER_PAGE,
                                 ),
                                 cosmic::Action::App,
                             ),
@@ -820,6 +840,12 @@ impl SmsConversationStore {
                     );
                     return (cosmic::app::Task::none(), SmsReply::NoOp);
                 }
+                // Count daemon-served messages toward an in-flight older page (pre-dedup, so
+                // it mirrors the daemon's numHandled. A full page means the daemon withheld
+                // conversationLoaded, so this is the only completion signal.
+                if let Some(load) = self.older_page.as_mut() {
+                    load.served = load.served.saturating_add(1);
+                }
 
                 // Reconcile optimistic message: if this incoming sent message
                 // matches our optimistic insert's body within a 5-minute window,
@@ -853,6 +879,13 @@ impl SmsConversationStore {
                         message.uid,
                         thread_id
                     );
+                    if self
+                        .older_page
+                        .as_ref()
+                        .is_some_and(|l| l.served >= l.page_size)
+                    {
+                        return (self.finalize_older_page(true, None), SmsReply::NoOp);
+                    }
                     return (cosmic::app::Task::none(), SmsReply::NoOp);
                 }
                 self.known_message_ids.insert(message.uid);
@@ -916,6 +949,13 @@ impl SmsConversationStore {
                         SmsReply::NoOp,
                     );
                 }
+                if self
+                    .older_page
+                    .as_ref()
+                    .is_some_and(|l| l.served >= l.page_size)
+                {
+                    return (self.finalize_older_page(true, None), SmsReply::NoOp);
+                }
                 (cosmic::app::Task::none(), SmsReply::NoOp)
             }
             Message::ConversationStoreLoaded {
@@ -928,6 +968,16 @@ impl SmsConversationStore {
                 // signal whose thread is in the open merged set.
                 if !self.current_merged_thread_ids.contains(&thread_id) {
                     return (cosmic::app::Task::none(), SmsReply::NoOp);
+                }
+
+                // End-of-history for an in-flight older page: the daemon served a short page
+                // (numHandled < howMany) and emitted conversationLoaded. Finalize with the
+                // real count so has_more clamps to false at the top of the thread.
+                if self.older_page.is_some() {
+                    return (
+                        self.finalize_older_page(false, Some(total_count)),
+                        SmsReply::NoOp,
+                    );
                 }
 
                 tracing::info!(
@@ -943,7 +993,7 @@ impl SmsConversationStore {
                     self.compute_messages_has_more(total_count, MESSAGES_PER_PAGE as usize);
 
                 // Scroll to bottom to show latest messages
-                if !self.messages.is_empty() {
+                if !self.initial_load_complete && !self.messages.is_empty() {
                     return (
                         scrollable::snap_to(
                             widget::Id::new("message-thread"),
