@@ -1173,7 +1173,6 @@ impl Application for ConnectApplet {
                     self.view_mode = ViewMode::MessageThread;
 
                     // Reset pagination state
-                    self.sms.messages_loaded_count = 0;
                     self.sms.messages_has_more = true;
                     self.sms.older_page = None;
 

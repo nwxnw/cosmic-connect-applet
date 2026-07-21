@@ -117,7 +117,6 @@ pub struct SmsConversationStore {
     pub(crate) sms_sending_body: Option<String>,
 
     // Message pagination / scroll preservation
-    pub(crate) messages_loaded_count: u32,
     pub(crate) messages_has_more: bool,
     pub(crate) older_page: Option<OlderPageLoad>,
 
@@ -164,7 +163,6 @@ impl SmsConversationStore {
             sms_compose_text: widget::text_editor::Content::new(),
             sms_sending: false,
             sms_sending_body: None,
-            messages_loaded_count: 0,
             messages_has_more: true,
             older_page: None,
             new_message_recipients: Vec::new(),
@@ -222,7 +220,6 @@ impl SmsConversationStore {
         if matches!(self.sms_loading_state, SmsLoadingState::LoadingMoreMessages) {
             self.sms_loading_state = SmsLoadingState::Idle;
         }
-        self.messages_loaded_count = self.messages.len() as u32;
 
         // New messages this page actually added.
         let prepended = self.messages.len().saturating_sub(load.len_before);
@@ -697,7 +694,12 @@ impl SmsConversationStore {
                             scroll_offset,
                             content_height,
                         });
-                        let start_index = self.messages_loaded_count;
+                        let primary = thread_id;
+                        let start_index = self
+                            .messages
+                            .iter()
+                            .filter(|m| m.thread_id == primary)
+                            .count() as u32;
 
                         return (
                             cosmic::app::Task::perform(
@@ -950,7 +952,6 @@ impl SmsConversationStore {
                 );
 
                 // Update pagination state via helper (handles merged-set math).
-                self.messages_loaded_count = self.messages.len() as u32;
                 self.messages_has_more =
                     self.compute_messages_has_more(total_count, MESSAGES_PER_PAGE as usize);
 
@@ -1000,7 +1001,6 @@ impl SmsConversationStore {
                 // subscription). Sort + pagination math + last_seen_sms all
                 // converge on the same final values regardless of arrival order.
                 self.messages.sort_by_key(|m| m.date);
-                self.messages_loaded_count = self.messages.len() as u32;
                 self.messages_has_more =
                     self.compute_messages_has_more(total_count, MESSAGES_PER_PAGE as usize);
                 if let Some(newest) = self.messages.iter().map(|m| m.date).max() {
