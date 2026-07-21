@@ -1175,6 +1175,12 @@ impl Application for ConnectApplet {
                     // Reset pagination state
                     self.sms.messages_has_more = true;
                     self.sms.older_page = None;
+                    self.sms.thread_has_more = self
+                        .sms
+                        .current_merged_thread_ids
+                        .iter()
+                        .map(|&t| (t, true))
+                        .collect();
 
                     // Clear known message IDs for fresh deduplication
                     self.sms.known_message_ids.clear();
@@ -1202,6 +1208,7 @@ impl Application for ConnectApplet {
                 self.sms.current_thread_id = None;
                 self.sms.current_thread_addresses = None;
                 self.sms.current_merged_thread_ids.clear();
+                self.sms.thread_has_more.clear();
                 self.sms.messages.clear();
                 self.sms.sms_compose_text = widget::text_editor::Content::new();
                 self.sms.sms_sending = false;
