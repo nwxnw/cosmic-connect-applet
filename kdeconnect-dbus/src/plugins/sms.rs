@@ -391,13 +391,10 @@ pub fn parse_sms_message(value: &OwnedValue) -> Option<SmsMessage> {
     })
 }
 
-/// Maximum number of conversations to display in the list.
-pub const MAX_CONVERSATIONS: usize = 20;
-
 /// Parse a list of D-Bus variant values into conversation summaries.
 ///
 /// Groups messages by thread_id and extracts the most recent message
-/// from each thread to create summaries. Limited to MAX_CONVERSATIONS.
+/// from each thread to create summaries.
 pub fn parse_conversations(values: Vec<OwnedValue>) -> Vec<ConversationSummary> {
     let mut messages: Vec<SmsMessage> = values.iter().filter_map(parse_sms_message).collect();
 
@@ -424,11 +421,6 @@ pub fn parse_conversations(values: Vec<OwnedValue>) -> Vec<ConversationSummary> 
             has_attachments,
             sub_id: msg.sub_id,
         });
-
-        // Limit to most recent conversations
-        if summaries.len() >= MAX_CONVERSATIONS {
-            break;
-        }
     }
 
     summaries

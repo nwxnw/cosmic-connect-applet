@@ -281,6 +281,14 @@ impl SmsConversationStore {
                 })
                 .collect()
         };
+        self.conversations.sort_by_key(|lc| {
+            (
+                std::cmp::Reverse(lc.last_message_timestamp),
+                lc.primary_thread_id,
+            )
+        });
+        self.conversations
+            .truncate(crate::constants::sms::CONVERSATION_LIST_DISPLAY_LIMIT);
     }
 
     /// Find the `LogicalConversation` containing `thread_id` (whether as
@@ -449,11 +457,9 @@ impl SmsConversationStore {
                     tracing::debug!("Added new conversation thread {}", conversation.thread_id);
                 }
 
-                // Re-sort raw cache by timestamp (newest first) and truncate.
+                // Re-sort raw cache by timestamp (newest first).
                 self.raw_conversations
                     .sort_by_key(|cs| std::cmp::Reverse(cs.timestamp));
-                self.raw_conversations
-                    .truncate(kdeconnect_dbus::plugins::MAX_CONVERSATIONS);
 
                 self.rederive_conversations(ctx.config);
 
@@ -521,13 +527,11 @@ impl SmsConversationStore {
 
                 self.raw_conversations = by_thread.into_values().collect();
 
-                // Sort and truncate once per batch, not once per conversation.
+                // Sort once per batch.
                 // thread_id is the tiebreak so HashMap iteration order can't
                 // make the list unstable between equal timestamps
                 self.raw_conversations
                     .sort_by_key(|cs| (std::cmp::Reverse(cs.timestamp), cs.thread_id));
-                self.raw_conversations
-                    .truncate(kdeconnect_dbus::plugins::MAX_CONVERSATIONS);
 
                 self.rederive_conversations(ctx.config);
 
