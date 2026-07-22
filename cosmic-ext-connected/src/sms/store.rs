@@ -110,7 +110,6 @@ pub struct SmsConversationStore {
     pub(crate) sms_loading_state: SmsLoadingState,
     pub(crate) contacts: ContactLookup,
     pub(crate) conversation_list_key: u32,
-    pub(crate) conversations_displayed: usize,
 
     // Reply compose / send
     pub(crate) sms_compose_text: widget::text_editor::Content,
@@ -161,7 +160,6 @@ impl SmsConversationStore {
             sms_loading_state: SmsLoadingState::Idle,
             contacts: ContactLookup::default(),
             conversation_list_key: 0,
-            conversations_displayed: 10,
             sms_compose_text: widget::text_editor::Content::new(),
             sms_sending: false,
             sms_sending_body: None,
@@ -609,13 +607,6 @@ impl SmsConversationStore {
                         self.sms_device_id
                     );
                 }
-                (cosmic::app::Task::none(), SmsReply::NoOp)
-            }
-
-            Message::LoadMoreConversations => {
-                // Show 10 more conversations (up to total available)
-                self.conversations_displayed =
-                    (self.conversations_displayed + 10).min(self.conversations.len());
                 (cosmic::app::Task::none(), SmsReply::NoOp)
             }
 
@@ -1524,7 +1515,6 @@ impl SmsConversationStore {
             SmsViewMode::ConversationList => view_conversation_list(ConversationListParams {
                 device_name: self.sms_device_name.as_deref(),
                 conversations: &self.conversations,
-                conversations_displayed: self.conversations_displayed,
                 contacts: &self.contacts,
                 loading_state: &self.sms_loading_state,
                 sync_active: self.conversation_sync_active,

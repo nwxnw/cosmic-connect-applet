@@ -156,7 +156,6 @@ fn view_attachment<'a>(
 pub struct ConversationListParams<'a> {
     pub device_name: Option<&'a str>,
     pub conversations: &'a [LogicalConversation],
-    pub conversations_displayed: usize,
     pub contacts: &'a ContactLookup,
     pub loading_state: &'a SmsLoadingState,
     /// Whether background sync is active (syncing conversations from phone)
@@ -258,11 +257,7 @@ pub fn view_conversation_list(params: ConversationListParams<'_>) -> Element<'_,
     } else {
         // Build conversation list (limited to conversations_displayed)
         let mut conv_column = column![].spacing(sp.space_xxxs);
-        for conv in params
-            .conversations
-            .iter()
-            .take(params.conversations_displayed)
-        {
+        for conv in params.conversations.iter() {
             let display_name = params.contacts.get_group_display_name(&conv.addresses, 3);
             let date_str = format_timestamp(conv.last_message_timestamp);
 
@@ -338,25 +333,6 @@ pub fn view_conversation_list(params: ConversationListParams<'_>) -> Element<'_,
             .on_press(Message::OpenConversation(conv.primary_thread_id));
 
             conv_column = conv_column.push(conv_row);
-        }
-
-        // Add "Load More" button if there are more conversations
-        if params.conversations_displayed < params.conversations.len() {
-            let load_more_row = row![
-                widget::icon::from_name("go-down-symbolic").size(16),
-                text::body(fl!("load-more-conversations")),
-            ]
-            .spacing(sp.space_xxs)
-            .align_y(Alignment::Center);
-
-            let load_more_button = applet::menu_button(
-                widget::container(load_more_row)
-                    .width(Length::Fill)
-                    .align_x(Alignment::Center),
-            )
-            .on_press(Message::LoadMoreConversations);
-
-            conv_column = conv_column.push(load_more_button);
         }
 
         // Show sync progress indicator at bottom when still syncing

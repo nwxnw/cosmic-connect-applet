@@ -157,8 +157,6 @@ pub enum Message {
     CloseConversation,
     /// Contacts loaded asynchronously for a device
     ContactsLoaded(String, ContactLookup),
-    /// User clicked "Load More" button in conversation list
-    LoadMoreConversations,
     /// SMS-related error occurred
     SmsError(String),
     /// Update SMS compose text input
@@ -1092,7 +1090,6 @@ impl Application for ConnectApplet {
                             // Seed raw_conversations and re-derive so the merge toggle works before the subscription's first refresh.
                             self.sms.raw_conversations = prefetched;
                             self.sms.rederive_conversations(&self.config);
-                            self.sms.conversations_displayed = 10;
                             self.sms.sms_loading_state = SmsLoadingState::Idle;
                             self.sms.conversation_sync_active = true;
                             self.sms.conversation_list_subscription_active = true;
@@ -1111,7 +1108,6 @@ impl Application for ConnectApplet {
                         self.sms.conversation_sync_active = true;
                         self.sms.conversation_list_subscription_active = true; // Enable subscription
                         self.sms.conversations.clear();
-                        self.sms.conversations_displayed = 10;
                         tracing::info!(
                             "Opening SMS view for device: {} (subscription-based loading)",
                             device_id
@@ -1570,7 +1566,6 @@ impl Application for ConnectApplet {
             | Message::ConversationReceived { .. }
             | Message::ConversationSyncStarted { .. }
             | Message::ConversationSyncComplete { .. }
-            | Message::LoadMoreConversations
             | Message::OlderMessagesRequested { .. }
             | Message::MessageThreadScrolled(_)
             | Message::BubblePressStarted { .. }
