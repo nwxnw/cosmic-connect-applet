@@ -374,9 +374,11 @@ pub fn view_conversation_list(params: ConversationListParams<'_>) -> Element<'_,
             );
         }
 
-        widget::scrollable(conv_column.padding([0, sp.space_xxs as u16]))
-            .width(Length::Fill)
-            .into()
+        widget::container(
+            widget::scrollable(conv_column.padding([0, sp.space_xxs as u16])).width(Length::Fill),
+        )
+        .max_height(crate::constants::sms::CONVERSATION_LIST_MAX_HEIGHT)
+        .into()
     };
 
     column![header, content,]

@@ -23,6 +23,8 @@ pub mod dbus {
 pub mod sms {
     /// Maximum number of logical conversations kept in the derived list for display.
     pub const CONVERSATION_LIST_DISPLAY_LIMIT: usize = 40;
+    /// Max height (logical px) of the conversation-list scroll area
+    pub const CONVERSATION_LIST_MAX_HEIGHT: f32 = 520.0;
     /// SMS messages fetched per request (thread open + each older-message page).
     pub const MESSAGES_PER_PAGE: u32 = 10;
 
