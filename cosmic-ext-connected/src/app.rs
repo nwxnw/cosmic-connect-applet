@@ -185,11 +185,17 @@ pub enum Message {
     NewMessageSendResult(Result<String, String>),
     /// Ack that an older-page `requestConversation` was fired (`ok`) or failed.
     /// Carries no messages - those stream in via `ConversationMessagesReceived`.
-    OlderMessagesRequested { thread_id: i64, ok: bool },
+    OlderMessagesRequested {
+        thread_id: i64,
+        ok: bool,
+    },
     /// Message thread scrolled - used for prefetching older messages
     MessageThreadScrolled(scrollable::Viewport),
     /// User started pressing a message bubble (for long-press copy)
-    BubblePressStarted { uid: i32, body: String },
+    BubblePressStarted {
+        uid: i32,
+        body: String,
+    },
     /// User released press on message bubble
     BubblePressReleased,
     /// Hint timer completed (500ms elapsed) - show "Hold to copy" hint
@@ -255,13 +261,24 @@ pub enum Message {
 
     // Subscription-based message loading
     /// Single message received from conversation subscription (incremental loading)
-    ConversationMessageReceived { thread_id: i64, message: SmsMessage },
+    ConversationMessageReceived {
+        thread_id: i64,
+        message: SmsMessage,
+    },
     /// Local store read complete - scroll to bottom, keep listening for phone data
-    ConversationStoreLoaded { thread_id: i64, total_count: u64 },
+    ConversationStoreLoaded {
+        thread_id: i64,
+        total_count: u64,
+    },
     /// All loading complete (phone response timeout) - finalize and drop subscription
-    ConversationLoadComplete { thread_id: i64, total_count: u64 },
+    ConversationLoadComplete {
+        thread_id: i64,
+        total_count: u64,
+    },
     /// Fire-and-forget D-Bus request completed, start listening for signals
-    ConversationLoadStarted { thread_id: i64 },
+    ConversationLoadStarted {
+        thread_id: i64,
+    },
 
     // Subscription-based conversation list loading
     /// Single conversation received via subscription (incremental update)
@@ -277,9 +294,16 @@ pub enum Message {
         conversations: Vec<ConversationSummary>,
     },
     /// Conversation list sync started (show loading indicator)
-    ConversationSyncStarted { device_id: String },
+    ConversationSyncStarted {
+        device_id: String,
+    },
     /// Conversation list sync complete (hide loading indicator)
-    ConversationSyncComplete { device_id: String },
+    ConversationSyncComplete {
+        device_id: String,
+    },
+    ConversationListStreamEnded {
+        device_id: String,
+    },
 }
 
 /// Keys for boolean settings that can be toggled.
@@ -595,6 +619,37 @@ impl Application for ConnectApplet {
                 }
             }
             Message::DevicesUpdated(devices) => {
+                // If the SMS device just came back reachable while its list is live, the
+                // daemon likely restarted / the phone rejoined and our bootstrap was orphaned.
+                // Bump the list-subscription generation → iced re-Inits the recipe → fresh
+                // activeConversations() re-fetch + re-bootstrap (the proven full recovery).
+                if self.sms.conversation_list_subscription_active {
+                    if let Some(sms_id) = self.sms.sms_device_id.as_deref() {
+                        let was_reachable = self
+                            .devices
+                            .iter()
+                            .find(|d| d.id == sms_id)
+                            .map(|d| d.is_reachable)
+                            .unwrap_or(false);
+                        let now_reachable = devices
+                            .iter()
+                            .find(|d| d.id == sms_id)
+                            .map(|d| d.is_reachable)
+                            .unwrap_or(false);
+                        if !was_reachable && now_reachable {
+                            self.sms.conversation_list_subscription_generation = self
+                                .sms
+                                .conversation_list_subscription_generation
+                                .wrapping_add(1);
+                            tracing::info!(
+                                "SMS device {} became reachable; regenerating conversation-list \
+                     subscription (gen {}) to re-sync",
+                                sms_id,
+                                self.sms.conversation_list_subscription_generation
+                            );
+                        }
+                    }
+                }
                 tracing::debug!("Devices updated: {} devices", devices.len());
                 self.devices = devices;
                 self.error = None;
@@ -1216,9 +1271,6 @@ impl Application for ConnectApplet {
                 self.sms.initial_load_complete = false;
                 self.sms.known_message_ids.clear();
 
-                // Increment key to reset scroll position
-                self.sms.conversation_list_key = self.sms.conversation_list_key.wrapping_add(1);
-
                 // The conversation-list subscription is still live and already holds
                 // everything a refetch would find. Re-arm it if an error tore it down while
                 // the user was in the thread - SmsError (store.rs:675) clears the flag
@@ -1566,6 +1618,7 @@ impl Application for ConnectApplet {
             | Message::ConversationReceived { .. }
             | Message::ConversationSyncStarted { .. }
             | Message::ConversationSyncComplete { .. }
+            | Message::ConversationListStreamEnded { .. }
             | Message::OlderMessagesRequested { .. }
             | Message::MessageThreadScrolled(_)
             | Message::BubblePressStarted { .. }

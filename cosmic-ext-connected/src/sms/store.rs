@@ -95,6 +95,7 @@ pub struct SmsConversationStore {
     pub(crate) conversation_list_subscription_active: bool,
     pub(crate) message_sync_active: bool,
     pub(crate) conversation_load_active: bool,
+    pub(crate) conversation_list_subscription_generation: u32,
     pub(crate) initial_load_complete: bool,
 
     // Active thread
@@ -109,7 +110,6 @@ pub struct SmsConversationStore {
     pub(crate) messages: Vec<SmsMessage>,
     pub(crate) sms_loading_state: SmsLoadingState,
     pub(crate) contacts: ContactLookup,
-    pub(crate) conversation_list_key: u32,
 
     // Reply compose / send
     pub(crate) sms_compose_text: widget::text_editor::Content,
@@ -151,6 +151,7 @@ impl SmsConversationStore {
             conversation_list_subscription_active: false,
             message_sync_active: false,
             conversation_load_active: false,
+            conversation_list_subscription_generation: 0,
             initial_load_complete: false,
             known_message_ids: HashSet::new(),
             current_thread_id: None,
@@ -159,7 +160,6 @@ impl SmsConversationStore {
             messages: Vec::new(),
             sms_loading_state: SmsLoadingState::Idle,
             contacts: ContactLookup::default(),
-            conversation_list_key: 0,
             sms_compose_text: widget::text_editor::Content::new(),
             sms_sending: false,
             sms_sending_body: None,
@@ -1460,6 +1460,30 @@ impl SmsConversationStore {
                 }
                 (cosmic::app::Task::none(), SmsReply::NoOp)
             }
+            Message::ConversationListStreamEnded { device_id } => {
+                // Only regenerate if the view still wants this device's list. If the
+                // user closed SMS or switched devices, do nothing.
+                if self.conversation_list_subscription_active
+                    && self.sms_device_id.as_deref() == Some(device_id.as_str())
+                {
+                    self.conversation_list_subscription_generation = self
+                        .conversation_list_subscription_generation
+                        .wrapping_add(1);
+                    tracing::info!(
+                        "Conversation-list stream ended for {}, regenerating subscription (gen{})",
+                        device_id,
+                        self.conversation_list_subscription_generation
+                    );
+                }
+                // Never leave the sync spinner stuck if the stream died mid-sync.
+                if matches!(
+                    self.sms_loading_state,
+                    SmsLoadingState::LoadingConversations(_)
+                ) {
+                    self.sms_loading_state = SmsLoadingState::Idle;
+                }
+                (cosmic::app::Task::none(), SmsReply::NoOp)
+            }
             Message::NewMessageSendResult(result) => {
                 self.new_message_sending = false;
                 match &result {
@@ -1567,9 +1591,10 @@ impl SmsConversationStore {
         // Conversation list subscription (incremental loading + background sync)
         if self.conversation_list_subscription_active {
             if let Some(device_id) = self.sms_device_id.clone() {
+                let generation = self.conversation_list_subscription_generation;
                 subs.push(Subscription::run_with(
-                    ("conversation_list", device_id.clone()),
-                    |(_, device_id)| conversation_list_subscription(device_id.clone()),
+                    ("conversation_list", device_id.clone(), generation),
+                    |(_, device_id, _generation)| conversation_list_subscription(device_id.clone()),
                 ));
             }
         }

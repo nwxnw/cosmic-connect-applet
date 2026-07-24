@@ -556,13 +556,11 @@ pub fn conversation_list_subscription(
                                             "D-Bus message stream ended for device {}",
                                             device_id
                                         );
-                                        if !sync_complete_emitted {
-                                            return Some((
-                                                Message::ConversationSyncComplete { device_id },
-                                                ConversationListState::Done,
-                                            ));
-                                        }
-                                        return None;
+                                        tokio::time::sleep(std::time::Duration::from_secs(RETRY_DELAY_SECS)).await;
+                                        return Some ((
+                                            Message::ConversationListStreamEnded { device_id },
+                                            ConversationListState::Done,
+                                        ));
                                     }
                                 }
                             }
