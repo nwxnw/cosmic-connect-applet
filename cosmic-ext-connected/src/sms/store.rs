@@ -822,6 +822,11 @@ impl SmsConversationStore {
                         );
                         self.messages[pos].uid = message.uid;
                         self.messages[pos].date = message.date;
+                        // The optimistic entry was inserted without attachments (we do not build a
+                        // local preview); the phone's echo is the authoritative copy, so adopt its
+                        // attachment list. Without this an attachment send reconciles cleanly and
+                        // then renders forever without its image.
+                        self.messages[pos].attachments = message.attachments.clone();
                         self.known_message_ids.remove(&OPTIMISTIC_MESSAGE_UID);
                         self.known_message_ids.insert(message.uid);
                         self.sms_sending_body = None;
