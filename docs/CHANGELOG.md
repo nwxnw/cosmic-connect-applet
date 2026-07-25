@@ -2,13 +2,15 @@
 
 ## [0.7.0] - TBD
 ### Changed
-- **`just install` no longer requires sudo.** Building from source now installs to `~/.local` by default. 
-- **The conversation list shows more conversations and scrolls, instead of paging.**
-- **The conversation list keeps a consistent height.** Filling the list no longer stretches the popup taller and taller.
+- `just install` no longer requires sudo. Building from source now installs to `~/.local` by default. 
+- The conversation list shows more conversations and scrolls, instead of paging.
+- The conversation list keeps a consistent height. Filling the list no longer stretches the popup taller and taller.
 
 ### Fixed
-- **Split conversations merge back together reliably.** Previously, older messages in a split conversation could be orphaned.
-- **The conversation list loads faster and more reliably.** Reworked how conversations are ingested from KDE Connect, removing redundant reloads and a rare request storm.
+- Reaction-over-SMS conversations stay merged as they age and scrolling to older messages works in merged conversations.
+- SMS conversation list now recovers on its own after KDE Connect daemon restarts or phone reconnects.
+- The conversation list loads faster and more reliably. Reworked how conversations are ingested from KDE Connect, removing redundant reloads and a rare request storm.
+- Opening a conversation while KDE Connect is briefly busy now retries instead of showing an empty thread.
 
 
 ## [0.6.0] - 2026-06-24
