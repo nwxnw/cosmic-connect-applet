@@ -67,6 +67,10 @@ pub mod sms {
 
     /// How long to wait for the retry bootstrap attempt.
     pub const CONVERSATION_LIST_RETRY_WAIT_MS: u64 = 6000;
+
+    /// Bound retries for a transient `request_conversion` rejection (busy /
+    /// briefly-unavailable daemon) before surfacing SmsError. Each waits RETRY_DELAY_SECS
+    pub const MAX_MESSAGE_LOAD_RETRIES: u8 = 3;
 }
 
 /// Refresh and polling interval constants.

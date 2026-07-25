@@ -3,7 +3,8 @@
 use crate::app::Message;
 use crate::constants::dbus::RETRY_DELAY_SECS;
 use crate::constants::sms::{
-    CONVERSATION_RETRY_WAIT_MS, MESSAGE_SUBSCRIPTION_TIMEOUT_SECS, PHONE_RESPONSE_TIMEOUT_MS,
+    CONVERSATION_RETRY_WAIT_MS, MAX_MESSAGE_LOAD_RETRIES, MESSAGE_SUBSCRIPTION_TIMEOUT_SECS,
+    PHONE_RESPONSE_TIMEOUT_MS,
 };
 use crate::notifications::{
     should_show_call_notification, should_show_file_notification, should_show_sms_notification,
@@ -794,22 +795,42 @@ pub fn conversation_message_subscription(
                                     thread_id,
                                     messages_per_page
                                 );
-                                if let Err(e) = conversations_proxy
-                                    .request_conversation(thread_id, 0, messages_per_page as i32)
-                                    .await
-                                {
-                                    tracing::warn!("Failed to request conversation: {}", e);
-                                    return Some((
-                                        Message::SmsError(format!(
-                                            "Failed to request conversation: {}",
-                                            e
-                                        )),
-                                        ConversationMessageState::Init {
+                                let mut attempt: u8 = 0;
+                                loop {
+                                    match conversations_proxy
+                                        .request_conversation(
                                             thread_id,
-                                            device_id,
-                                            messages_per_page,
-                                        },
-                                    ));
+                                            0,
+                                            messages_per_page as i32,
+                                        )
+                                        .await
+                                    {
+                                        Ok(()) => break,
+                                        Err(e) => {
+                                            attempt += 1;
+                                            if attempt >= MAX_MESSAGE_LOAD_RETRIES {
+                                                tracing::warn!(
+                                                    "request_conversation for thread {} failed after {} attempts: {}",
+                                                    thread_id, attempt, e
+                                                );
+                                                return Some((
+                                                    Message::SmsError(format!(
+                                                        "Failed to request conversation after {} attempts:{}",
+                                                        attempt, e
+                                                    )),
+                                                    ConversationMessageState::Done, //give up gracefully
+                                                ));
+                                            }
+                                            tracing::warn!(
+                                                "request_conversation for thread {} failed (attempt {}/{}), retrying in  {}s: {}",
+                                                thread_id, attempt, MAX_MESSAGE_LOAD_RETRIES, RETRY_DELAY_SECS, e
+                                            );
+                                            tokio::time::sleep(std::time::Duration::from_secs(
+                                                RETRY_DELAY_SECS,
+                                            ))
+                                            .await;
+                                        }
+                                    }
                                 }
                                 tracing::info!(
                                     "Conversation {} request sent, listening for signals",
