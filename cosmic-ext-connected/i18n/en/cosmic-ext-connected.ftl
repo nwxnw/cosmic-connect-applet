@@ -181,6 +181,10 @@ unpaired = Unpaired from device
 attachment = Attachment
 loading-attachment = Loading attachment...
 attachment-failed = Failed to load attachment
+attach-file = Attach file
+remove-attachment = Remove attachment
+attachment-unreadable = File is unreadable - nothing was sent
+attachment-too-large = Large attachments may be rejected by your carrier
 
 # Reaction-thread merging UI
 merge-toggle-on-tooltip = Reaction replies are grouped into their conversation. Click to show as separate threads.
