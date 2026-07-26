@@ -1129,6 +1129,7 @@ impl SmsConversationStore {
                                     device_id.clone(),
                                     reply_target,
                                     message_text,
+                                    None, // TODO (D.5)
                                 ),
                                 cosmic::Action::App,
                             ),
@@ -1456,6 +1457,7 @@ impl SmsConversationStore {
                                     device_id.clone(),
                                     recipients,
                                     message,
+                                    None, // TODO D.5
                                 ),
                                 cosmic::Action::App,
                             ),
