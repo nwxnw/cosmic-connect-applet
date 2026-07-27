@@ -57,6 +57,12 @@ pub mod sms {
     /// the conversation list on cold start.
     pub const CONVERSATION_LIST_PHONE_WAIT_MS: u64 = 8000;
 
+    /// How long the post-send sync indicator stays up while waiting for the phone
+    /// to sync a newly created conversation back. Advisory only: no send-outcome
+    /// reporting exists at any layer (daemon or phone), so nothing guarantees the
+    /// self-clearing instead of sticky.
+    pub const NEW_MESSAGE_SYNC_INDICATOR_SECS: u64 = 15;
+
     /// After we have seen activity during bootstrap, treat the conversation
     /// list as settled once it stays quiet for this long.
     pub const CONVERSATION_LIST_QUIET_MS: u64 = 2000;

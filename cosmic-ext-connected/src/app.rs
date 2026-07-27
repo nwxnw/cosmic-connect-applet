@@ -181,6 +181,10 @@ pub enum Message {
     SelectContact(String, String), // name, phone
     /// Send a new message
     SendNewMessage,
+    /// Deadline for the post-send sync indicator.
+    NewMessageSyncSettle {
+        device_id: String,
+    },
     /// New message send result
     NewMessageSendResult(Result<String, String>),
     /// Ack that an older-page `requestConversation` was fired (`ok`) or failed.
@@ -1183,6 +1187,7 @@ impl Application for ConnectApplet {
                 self.sms.current_merged_thread_ids.clear();
                 self.sms.sms_loading_state = SmsLoadingState::Idle;
                 self.sms.conversation_sync_active = false;
+                self.sms.new_message_sync_active = false;
                 self.sms.conversation_list_subscription_active = false;
                 self.sms.sms_compose_text = widget::text_editor::Content::new();
                 self.sms.sms_sending = false;
@@ -1616,6 +1621,7 @@ impl Application for ConnectApplet {
             Message::SmsPrefetchReady(_, _)
             | Message::ContactsLoaded(_, _)
             | Message::ConversationReceived { .. }
+            | Message::NewMessageSyncSettle { .. }
             | Message::ConversationSyncStarted { .. }
             | Message::ConversationSyncComplete { .. }
             | Message::ConversationListStreamEnded { .. }

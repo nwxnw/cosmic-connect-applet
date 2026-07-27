@@ -5,7 +5,7 @@
 use crate::app::{LoadingPhase, Message, SmsLoadingState};
 use crate::config::Config;
 use crate::constants::notifications::NORMAL_NOTIFICATION_TIMEOUT_MS;
-use crate::constants::sms::MESSAGES_PER_PAGE;
+use crate::constants::sms::{MESSAGES_PER_PAGE, NEW_MESSAGE_SYNC_INDICATOR_SECS};
 use crate::fl;
 use crate::sms::logical::{merge_into_logical, split_candidate_thread_ids, LogicalConversation};
 use crate::sms::{
@@ -92,6 +92,7 @@ pub struct SmsConversationStore {
     pub(crate) conversations: Vec<LogicalConversation>,
     pub(crate) sms_prefetch: Option<(String, Vec<ConversationSummary>)>,
     pub(crate) conversation_sync_active: bool,
+    pub(crate) new_message_sync_active: bool,
     pub(crate) conversation_list_subscription_active: bool,
     pub(crate) message_sync_active: bool,
     pub(crate) conversation_load_active: bool,
@@ -148,6 +149,7 @@ impl SmsConversationStore {
             conversations: Vec::new(),
             sms_prefetch: None,
             conversation_sync_active: false,
+            new_message_sync_active: false,
             conversation_list_subscription_active: false,
             message_sync_active: false,
             conversation_load_active: false,
@@ -433,6 +435,8 @@ impl SmsConversationStore {
                     );
                     return (cosmic::app::Task::none(), SmsReply::NoOp);
                 }
+                // A send is only waiting for the list to change; any change concludes it.
+                self.new_message_sync_active = false;
 
                 // Upsert into raw cache by underlying thread_id. Re-derive
                 // logical conversations after — incremental upsert on the
@@ -494,6 +498,9 @@ impl SmsConversationStore {
                     conversations.len(),
                     device_id
                 );
+
+                // A send is only waiting for the list to change; any change concludes it.
+                self.new_message_sync_active = false;
 
                 // Upsert through a map. The per-item linear 'find' in
                 // ConversationReceived is fine for one conversation but
@@ -1489,6 +1496,12 @@ impl SmsConversationStore {
                 }
                 (cosmic::app::Task::none(), SmsReply::NoOp)
             }
+            Message::NewMessageSyncSettle { device_id } => {
+                if self.sms_device_id.as_deref() == Some(device_id.as_str()) {
+                    self.new_message_sync_active = false;
+                }
+                (cosmic::app::Task::none(), SmsReply::NoOp)
+            }
             Message::NewMessageSendResult(result) => {
                 self.new_message_sending = false;
                 match &result {
@@ -1503,14 +1516,22 @@ impl SmsConversationStore {
                         // syncs back. The subscription listens over a longer window than a
                         // one-shot fetch, giving the phone time to process the send and
                         // emit a conversationCreated signal.
-                        if self.sms_device_id.is_some() {
+                        let mut settle_task = cosmic::app::Task::none();
+                        if let Some(device_id) = self.sms_device_id.clone() {
                             self.conversation_list_subscription_active = true;
-                            self.conversation_sync_active = true;
+                            self.new_message_sync_active = true;
+                            settle_task = cosmic::app::Task::perform(
+                                async move {
+                                    tokio::time::sleep(std::time::Duration::from_secs(
+                                        NEW_MESSAGE_SYNC_INDICATOR_SECS,
+                                    ))
+                                    .await;
+                                    Message::NewMessageSyncSettle { device_id }
+                                },
+                                cosmic::Action::App,
+                            );
                         }
-                        (
-                            cosmic::app::Task::none(),
-                            SmsReply::NewMessageSent(success_msg),
-                        )
+                        (settle_task, SmsReply::NewMessageSent(success_msg))
                     }
                     Err(err) => {
                         tracing::error!("New message send error: {}", err);
@@ -1546,7 +1567,7 @@ impl SmsConversationStore {
                 conversations: &self.conversations,
                 contacts: &self.contacts,
                 loading_state: &self.sms_loading_state,
-                sync_active: self.conversation_sync_active,
+                sync_active: self.conversation_sync_active || self.new_message_sync_active,
                 merge_reaction_threads: config.merge_reaction_threads,
             }),
             SmsViewMode::MessageThread => {
