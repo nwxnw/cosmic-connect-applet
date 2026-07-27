@@ -11,6 +11,7 @@
 - SMS conversation list now recovers on its own after KDE Connect daemon restarts or phone reconnects.
 - The conversation list loads faster and more reliably. Reworked how conversations are ingested from KDE Connect, removing redundant reloads and a rare request storm.
 - Opening a conversation while KDE Connect is briefly busy now retries instead of showing an empty thread.
+- Sending a new message no longer leaves a sync indicator stuck on the conversation list. It clears as soon as the new conversation arrives from your phone, and on its own shortly after if the phone never reports one.
 
 
 ## [0.6.0] - 2026-06-24
