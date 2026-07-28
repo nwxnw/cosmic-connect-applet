@@ -623,37 +623,53 @@ impl Application for ConnectApplet {
                 }
             }
             Message::DevicesUpdated(devices) => {
-                // If the SMS device just came back reachable while its list is live, the
-                // daemon likely restarted / the phone rejoined and our bootstrap was orphaned.
-                // Bump the list-subscription generation → iced re-Inits the recipe → fresh
-                // activeConversations() re-fetch + re-bootstrap (the proven full recovery).
-                if self.sms.conversation_list_subscription_active {
-                    if let Some(sms_id) = self.sms.sms_device_id.as_deref() {
-                        let was_reachable = self
-                            .devices
-                            .iter()
-                            .find(|d| d.id == sms_id)
-                            .map(|d| d.is_reachable)
-                            .unwrap_or(false);
-                        let now_reachable = devices
-                            .iter()
-                            .find(|d| d.id == sms_id)
-                            .map(|d| d.is_reachable)
-                            .unwrap_or(false);
-                        if !was_reachable && now_reachable {
+                // If the SMS device just came back reachable, the daemon likely restarted
+                // or the phone rejoined and whatever we had in flight was orphaned. Bump
+                // the affected subscription generations → iced re-Inits each recipe → the
+                // requests re-fire from scratch (the proven full recovery).
+                // Computed once, consumed by two independent guards; the list and the
+                // per-thread message subscriptions have separate lifecycles
+                if let Some(sms_id) = self.sms.sms_device_id.as_deref() {
+                    let was_reachable = self
+                        .devices
+                        .iter()
+                        .find(|d| d.id == sms_id)
+                        .map(|d| d.is_reachable)
+                        .unwrap_or(false);
+                    let now_reachable = devices
+                        .iter()
+                        .find(|d| d.id == sms_id)
+                        .map(|d| d.is_reachable)
+                        .unwrap_or(false);
+                    if !was_reachable && now_reachable {
+                        if self.sms.conversation_list_subscription_active {
                             self.sms.conversation_list_subscription_generation = self
                                 .sms
                                 .conversation_list_subscription_generation
                                 .wrapping_add(1);
                             tracing::info!(
                                 "SMS device {} became reachable; regenerating conversation-list \
-                     subscription (gen {}) to re-sync",
+                                subscription (gen {}) to re-sync",
                                 sms_id,
                                 self.sms.conversation_list_subscription_generation
                             );
                         }
+                        if self.sms.conversation_load_active {
+                            self.sms.conversation_message_subscription_generation = self
+                                .sms
+                                .conversation_message_subscription_generation
+                                .wrapping_add(1);
+                            tracing::info!(
+                                "SMS device {} became reachable; regenerating message \
+                                subscriptions for {} open thread(s) (gen {}) to re-request",
+                                sms_id,
+                                self.sms.current_merged_thread_ids.len(),
+                                self.sms.conversation_message_subscription_generation
+                            );
+                        }
                     }
                 }
+
                 tracing::debug!("Devices updated: {} devices", devices.len());
                 self.devices = devices;
                 self.error = None;

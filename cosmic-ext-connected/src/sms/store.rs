@@ -97,6 +97,7 @@ pub struct SmsConversationStore {
     pub(crate) message_sync_active: bool,
     pub(crate) conversation_load_active: bool,
     pub(crate) conversation_list_subscription_generation: u32,
+    pub(crate) conversation_message_subscription_generation: u32,
     pub(crate) initial_load_complete: bool,
 
     // Active thread
@@ -154,6 +155,7 @@ impl SmsConversationStore {
             message_sync_active: false,
             conversation_load_active: false,
             conversation_list_subscription_generation: 0,
+            conversation_message_subscription_generation: 0,
             initial_load_complete: false,
             known_message_ids: HashSet::new(),
             current_thread_id: None,
@@ -1633,6 +1635,7 @@ impl SmsConversationStore {
         if self.conversation_load_active {
             if let Some(device_id) = self.sms_device_id.clone() {
                 let messages_per_page = MESSAGES_PER_PAGE;
+                let generation = self.conversation_message_subscription_generation;
                 for &thread_id in &self.current_merged_thread_ids {
                     subs.push(Subscription::run_with(
                         (
@@ -1640,8 +1643,9 @@ impl SmsConversationStore {
                             thread_id,
                             device_id.clone(),
                             messages_per_page,
+                            generation,
                         ),
-                        |(_, thread_id, device_id, messages_per_page)| {
+                        |(_, thread_id, device_id, messages_per_page, _generation)| {
                             conversation_message_subscription(
                                 *thread_id,
                                 device_id.clone(),
