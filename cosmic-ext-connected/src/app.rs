@@ -655,6 +655,22 @@ impl Application for ConnectApplet {
                             );
                         }
                         if self.sms.conversation_load_active {
+                            // Recovery re-runs Init, so it must also re-run the load
+                            // bookkeeping OvenConversation does - otherwise the
+                            // re-streamed page is deduped against stale uids and
+                            // `messages` becomes the union of pre- and post-restart
+                            // data. Mirros app.rs OpenConversation. See D.25.
+                            self.sms.messages_has_more = true;
+                            self.sms.older_page = None;
+                            self.sms.thread_has_more = self
+                                .sms
+                                .current_merged_thread_ids
+                                .iter()
+                                .map(|&t| (t, true))
+                                .collect();
+                            self.sms.known_message_ids.clear();
+                            self.sms.messages.clear();
+                            self.sms.initial_load_complete = false;
                             self.sms.conversation_message_subscription_generation = self
                                 .sms
                                 .conversation_message_subscription_generation
