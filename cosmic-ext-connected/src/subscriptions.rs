@@ -14,6 +14,42 @@ use kdeconnect_dbus::plugins::{parse_sms_message, MessageType};
 use kdeconnect_dbus::DeviceProxy;
 use zbus::Connection;
 
+/// Retry a fallible D-Bus construction step `MAX_MESSAGE_LOAD_RETRIES` times with
+/// `RETRY_DELAY_SECS` between attempts. Generalises D.17's inline loop
+/// (`request_conversation`, below) to the construction steps it does not reach.
+///
+/// The caller terminates with `Done` on `Err` - it must NOT re-enter `Init`, or the
+/// no-sleep failure paths become a hot loop (see D.25 ownership rule).
+pub(crate) async fn with_dbus_retries<T, E, F, Fut>(label: &str, mut op: F) -> Result<T, E>
+where
+    F: FnMut() -> Fut,
+    Fut: std::future::Future<Output = Result<T, E>>,
+    E: std::fmt::Display,
+{
+    let mut attempt: u8 = 0;
+    loop {
+        match op().await {
+            Ok(v) => return Ok(v),
+            Err(e) => {
+                attempt += 1;
+                if attempt >= MAX_MESSAGE_LOAD_RETRIES {
+                    tracing::warn!("{} failed after {} attempts: {}", label, attempt, e);
+                    return Err(e);
+                }
+                tracing::warn!(
+                    "{} failed (attempt {}/{}), retrying in {}s: {}",
+                    label,
+                    attempt,
+                    MAX_MESSAGE_LOAD_RETRIES,
+                    RETRY_DELAY_SECS,
+                    e
+                );
+                tokio::time::sleep(std::time::Duration::from_secs(RETRY_DELAY_SECS)).await;
+            }
+        }
+    }
+}
+
 /// Re-issue `requestConversation` on the Conversations interface as part of the
 /// first-open truncation recovery path. Offset semantics match KDE Connect's
 /// `ConversationModel::requestMoreMessages`: `start = numKnown`,
@@ -653,45 +689,45 @@ pub fn conversation_message_subscription(
                     messages_per_page,
                 } => {
                     // Connect to D-Bus
-                    let conn = match Connection::session().await {
+                    let conn = match with_dbus_retries(
+                        "thread D-Bus session connect",
+                        Connection::session,
+                    )
+                    .await
+                    {
                         Ok(c) => c,
-                        Err(e) => {
-                            tracing::error!(
-                                "Failed to connect to D-Bus for conversation messages: {}",
-                                e
-                            );
-                            tokio::time::sleep(std::time::Duration::from_secs(RETRY_DELAY_SECS))
-                                .await;
+                        Err(_) => {
                             return Some((
                                 Message::SmsError(
                                     "D-Bus connection failed for conversation".to_string(),
                                 ),
-                                ConversationMessageState::Init {
-                                    thread_id,
-                                    device_id,
-                                    messages_per_page,
-                                },
+                                ConversationMessageState::Done, // NOT Init - see D.25
                             ));
                         }
                     };
 
+                    // `conn_ref` is `Copy`, so the retry closures below can hand a fresh,
+                    // independent future to each attempt without moving `conn` out of their
+                    // environment (which would make them `FnOnce`, not `FnMut`).
+                    let conn_ref = &conn;
+
                     // Add match rule for conversationUpdated signals
-                    let dbus_proxy = match zbus::fdo::DBusProxy::new(&conn).await {
-                        Ok(p) => p,
-                        Err(e) => {
-                            tracing::error!("Failed to create DBus proxy for conversation: {}", e);
-                            return Some((
-                                Message::SmsError(
-                                    "D-Bus proxy failed for conversation".to_string(),
-                                ),
-                                ConversationMessageState::Init {
-                                    thread_id,
-                                    device_id,
-                                    messages_per_page,
-                                },
-                            ));
-                        }
-                    };
+                    let dbus_proxy =
+                        match with_dbus_retries("thread D-Bus proxy build", move || {
+                            zbus::fdo::DBusProxy::new(conn_ref)
+                        })
+                        .await
+                        {
+                            Ok(p) => p,
+                            Err(_) => {
+                                return Some((
+                                    Message::SmsError(
+                                        "D-Bus proxy failed for conversation".to_string(),
+                                    ),
+                                    ConversationMessageState::Done, // NOT Init - see D.25
+                                ));
+                            }
+                        };
 
                     // Subscribe to conversationUpdated signals (individual messages)
                     let updated_rule = zbus::MatchRule::builder()
@@ -783,88 +819,71 @@ pub fn conversation_message_subscription(
                     }
 
                     // Fire Conversations interface request (provides per-message signals)
-                    match kdeconnect_dbus::plugins::ConversationsProxy::builder(&conn)
-                        .path(device_path.as_str())
-                        .ok()
-                        .map(|b| b.build())
+                    let device_path_str = device_path.as_str();
+                    let conversations_proxy = match with_dbus_retries(
+                        "thread conversations proxy build",
+                        move || async move {
+                            kdeconnect_dbus::plugins::ConversationsProxy::builder(conn_ref)
+                                .path(device_path_str)?
+                                .build()
+                                .await
+                        },
+                    )
+                    .await
                     {
-                        Some(fut) => match fut.await {
-                            Ok(conversations_proxy) => {
-                                tracing::debug!(
-                                    "Firing request_conversation for thread {} (messages 0-{})",
-                                    thread_id,
-                                    messages_per_page
-                                );
-                                let mut attempt: u8 = 0;
-                                loop {
-                                    match conversations_proxy
-                                        .request_conversation(
-                                            thread_id,
-                                            0,
-                                            messages_per_page as i32,
-                                        )
-                                        .await
-                                    {
-                                        Ok(()) => break,
-                                        Err(e) => {
-                                            attempt += 1;
-                                            if attempt >= MAX_MESSAGE_LOAD_RETRIES {
-                                                tracing::warn!(
+                        Ok(p) => p,
+                        Err(e) => {
+                            return Some((
+                                Message::SmsError(format!(
+                                    "Failed to create conversations proxy: {}",
+                                    e
+                                )),
+                                ConversationMessageState::Done, //NOT init - See D.25
+                            ));
+                        }
+                    };
+                    tracing::debug!(
+                        "Firing request_conversation for thread {} (messages 0-{})",
+                        thread_id,
+                        messages_per_page
+                    );
+                    let mut attempt: u8 = 0;
+                    loop {
+                        match conversations_proxy
+                            .request_conversation(thread_id, 0, messages_per_page as i32)
+                            .await
+                        {
+                            Ok(()) => break,
+                            Err(e) => {
+                                attempt += 1;
+                                if attempt >= MAX_MESSAGE_LOAD_RETRIES {
+                                    tracing::warn!(
                                                     "request_conversation for thread {} failed after {} attempts: {}",
                                                     thread_id, attempt, e
                                                 );
-                                                return Some((
-                                                    Message::SmsError(format!(
-                                                        "Failed to request conversation after {} attempts:{}",
-                                                        attempt, e
-                                                    )),
-                                                    ConversationMessageState::Done, //give up gracefully
-                                                ));
-                                            }
-                                            tracing::warn!(
+                                    return Some((
+                                        Message::SmsError(format!(
+                                            "Failed to request conversation after {} attempts:{}",
+                                            attempt, e
+                                        )),
+                                        ConversationMessageState::Done, //give up gracefully
+                                    ));
+                                }
+                                tracing::warn!(
                                                 "request_conversation for thread {} failed (attempt {}/{}), retrying in  {}s: {}",
                                                 thread_id, attempt, MAX_MESSAGE_LOAD_RETRIES, RETRY_DELAY_SECS, e
                                             );
-                                            tokio::time::sleep(std::time::Duration::from_secs(
-                                                RETRY_DELAY_SECS,
-                                            ))
-                                            .await;
-                                        }
-                                    }
-                                }
-                                tracing::info!(
-                                    "Conversation {} request sent, listening for signals",
-                                    thread_id
-                                );
+                                tokio::time::sleep(std::time::Duration::from_secs(
+                                    RETRY_DELAY_SECS,
+                                ))
+                                .await;
                             }
-                            Err(e) => {
-                                tracing::warn!("Failed to create conversations proxy: {}", e);
-                                return Some((
-                                    Message::SmsError(format!(
-                                        "Failed to create conversations proxy: {}",
-                                        e
-                                    )),
-                                    ConversationMessageState::Init {
-                                        thread_id,
-                                        device_id,
-                                        messages_per_page,
-                                    },
-                                ));
-                            }
-                        },
-                        None => {
-                            return Some((
-                                Message::SmsError(
-                                    "Failed to build conversations proxy path".to_string(),
-                                ),
-                                ConversationMessageState::Init {
-                                    thread_id,
-                                    device_id,
-                                    messages_per_page,
-                                },
-                            ));
                         }
                     }
+                    tracing::info!(
+                        "Conversation {} request sent, listening for signals",
+                        thread_id
+                    );
 
                     // Move to listening state, emit started message
                     Some((
