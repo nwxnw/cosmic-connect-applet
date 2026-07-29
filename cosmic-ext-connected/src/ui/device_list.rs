@@ -26,7 +26,7 @@ pub fn view<'a>(
             widget::space::horizontal(),
             widget::tooltip(
                 widget::button::icon(icon::from_name("view-refresh-symbolic"))
-                    .on_press(Message::RefreshDevices),
+                    .on_press(Message::ForceReconnect),
                 text::caption(fl!("refresh")),
                 widget::tooltip::Position::Bottom,
             )

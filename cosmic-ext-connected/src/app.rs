@@ -8,8 +8,8 @@ use crate::constants::{
 };
 use crate::device::{
     accept_pairing_async, dismiss_notification_async, fetch_devices_async, find_my_phone_async,
-    reject_pairing_async, request_pair_async, send_clipboard_async, send_ping_async,
-    share_file_async, share_text_async, unpair_async,
+    force_network_change_async, reject_pairing_async, request_pair_async, send_clipboard_async,
+    send_ping_async, share_file_async, share_text_async, unpair_async,
 };
 use crate::fl;
 use crate::media::{
@@ -49,6 +49,8 @@ pub enum Message {
     PopupClosed(window::Id),
     /// Refresh device list
     RefreshDevices,
+    /// Prod the daemon to re-scan the network, then refresh (manual Refresh button)
+    ForceReconnect,
     /// Device list was updated
     DevicesUpdated(Vec<DeviceInfo>),
     /// D-Bus connection established
@@ -614,6 +616,17 @@ impl Application for ConnectApplet {
                 tracing::error!("D-Bus connection failed: {}", err);
                 self.error = Some(format!("Cannot connect to KDE Connect: {}", err));
                 self.loading = false;
+            }
+            Message::ForceReconnect => {
+                if let Some(conn) = &self.dbus_connection {
+                    tracing::debug!("Forcing network re-scan");
+                    self.loading = true;
+                    self.status_message = None;
+                    return cosmic::app::Task::perform(
+                        force_network_change_async(conn.clone()),
+                        cosmic::Action::App,
+                    );
+                }
             }
             Message::RefreshDevices => {
                 if let Some(conn) = &self.dbus_connection {

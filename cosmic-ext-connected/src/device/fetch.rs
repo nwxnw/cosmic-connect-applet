@@ -48,6 +48,27 @@ pub async fn fetch_devices_async(conn: Arc<Mutex<Connection>>) -> Message {
     Message::DevicesUpdated(devices)
 }
 
+/// Prod the daemon to re-broadcast on the network, then re-fetch devices state.
+///
+/// `forceOnNetworkChange` is fire-and-forget: it re-sends identify broadcasts,
+/// but the phone's reconnect (and resulting reachableChanged signal) arrives
+/// asynchronously and is picked up by the signal subscription, not this fetch
+pub async fn force_network_change_async(conn: Arc<Mutex<Connection>>) -> Message {
+    {
+        let conn_guard = conn.lock().await;
+        match DaemonProxy::new(&conn_guard).await {
+            Ok(daemon) => {
+                if let Err(e) = daemon.force_on_network_change().await {
+                    //Best-effort: a failed prod shouldn't block the re-fetch.
+                    tracing::warn!("forceOnNetworkChange failed: {}", e);
+                }
+            }
+            Err(e) => tracing::warn!("Daemon proxy for network refresh failed: {}", e),
+        }
+    } // <-- guard MUST drop here; fetch_devices_async locks the same Mutex again
+    fetch_devices_async(conn).await
+}
+
 /// Fetch information for a single device.
 pub async fn fetch_device_info(conn: &Connection, device_id: &str) -> Result<DeviceInfo, String> {
     let device = DeviceProxy::for_device(conn, device_id)
