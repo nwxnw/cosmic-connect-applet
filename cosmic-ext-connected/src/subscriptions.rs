@@ -233,7 +233,37 @@ pub fn dbus_signal_subscription() -> impl futures_util::Stream<Item = Message> {
                                             }
                                         }
                                     }
-
+                                    // Pairing failure carries its reason as a string.
+                                    // The daemon emits pairStateChanged ~20µs later
+                                    // (core/device.cpp:257-261), so pair state already
+                                    // corrects itself — this is only the reason.
+                                    if iface_str == "org.kde.kdeconnect.device"
+                                        && member_str == "pairingFailed"
+                                    {
+                                        if let Some(path) = msg.header().path() {
+                                            if let Some(rest) = path
+                                                .as_str()
+                                                .strip_prefix("/modules/kdeconnect/devices/")
+                                            {
+                                                let device_id = rest
+                                                    .split('/')
+                                                    .next()
+                                                    .unwrap_or(rest)
+                                                    .to_string();
+                                                if let Ok((error,)) =
+                                                    msg.body().deserialize::<(String,)>()
+                                                {
+                                                    return Some((
+                                                        Message::PairingFailed { device_id, error },
+                                                        DbusSubscriptionState::Listening {
+                                                            conn,
+                                                            stream,
+                                                        },
+                                                    ));
+                                                }
+                                            }
+                                        }
+                                    }
                                     // Only trigger refresh on specific device-related signals.
                                     // Signal names match upstream KDE Connect
                                     // (see core/daemon.h and core/device.h). The previous

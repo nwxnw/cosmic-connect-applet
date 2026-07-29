@@ -39,6 +39,7 @@ paired-offline = Paired (offline)
 visible-not-paired = Visible but not paired
 pairing-requested-by-device = Pairing requested by device
 pairing-request-sent = Pairing request sent...
+pairing-failed = Pairing failed: { $error }
 
 # Device actions
 ping = Ping

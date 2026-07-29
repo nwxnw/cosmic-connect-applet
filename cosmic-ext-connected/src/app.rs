@@ -115,6 +115,12 @@ pub enum Message {
     RejectPairing(String),
     /// Pairing operation completed
     PairingResult(Result<String, String>),
+    /// Daemon reported a pairing failure for a device (`pairingFailed`).
+    /// Carries the daemon's own localized error string.
+    PairingFailed {
+        device_id: String,
+        error: String,
+    },
     /// Clear the transient status message after a delay
     ClearStatusMessage,
     /// D-Bus signal received indicating device state changed
@@ -437,6 +443,17 @@ pub struct ConnectApplet {
     popup: Option<window::Id>,
     devices: Vec<DeviceInfo>,
     error: Option<String>,
+    /// Last pairing failure, as (device_id, daemon error string). Owned by the
+    /// pairing flow: set when daemon reports a failure, cleared only when the
+    /// user starts another attempt or leaves the page. Deliberately NOT
+    /// status_message and NOT DeviceInfo - pairingFailed is followed ~20µs later
+    /// by pairStateChanged, whose refresh clears status_message and
+    /// replaces self.devices, so either home would erase the reason.
+    pairing_error: Option<(String, String)>,
+    /// Device whose pairing we cancelled ourselves. The daemon reports a
+    /// user-initiated cancel as pairingFailed("Cancelled by user"), which is not
+    /// an error worth showing. Consumed by the next PairingFailed.
+    pairing_cancel_expected: Option<String>,
     /// Status message for user feedback (e.g., "Ping sent", "Pairing failed")
     status_message: Option<String>,
     /// D-Bus connection (shared for async operations)
@@ -541,6 +558,8 @@ impl Application for ConnectApplet {
             popup: None,
             devices: Vec::new(),
             error: None,
+            pairing_error: None,
+            pairing_cancel_expected: None,
             status_message: None,
             dbus_connection: None,
             loading: true,
@@ -783,6 +802,7 @@ impl Application for ConnectApplet {
                 self.view_mode = ViewMode::DeviceList;
                 self.share_text_input.clear();
                 self.sms.sms_prefetch = None;
+                self.pairing_error = None;
             }
             Message::OpenSendToView(device_id, device_type) => {
                 self.sendto_device_id = Some(device_id);
@@ -914,6 +934,7 @@ impl Application for ConnectApplet {
             Message::RequestPair(device_id) => {
                 if let Some(conn) = &self.dbus_connection {
                     tracing::info!("Requesting pairing with device: {}", device_id);
+                    self.pairing_error = None;
                     self.status_message = Some("Pairing request sent...".to_string());
                     return cosmic::app::Task::perform(
                         request_pair_async(conn.clone(), device_id),
@@ -949,6 +970,7 @@ impl Application for ConnectApplet {
             Message::AcceptPairing(device_id) => {
                 if let Some(conn) = &self.dbus_connection {
                     tracing::info!("Accepting pairing from device: {}", device_id);
+                    self.pairing_error = None;
                     self.status_message = Some("Accepting pairing...".to_string());
                     return cosmic::app::Task::perform(
                         accept_pairing_async(conn.clone(), device_id),
@@ -959,6 +981,8 @@ impl Application for ConnectApplet {
             Message::RejectPairing(device_id) => {
                 if let Some(conn) = &self.dbus_connection {
                     tracing::info!("Rejecting/cancelling pairing for device: {}", device_id);
+                    self.pairing_error = None;
+                    self.pairing_cancel_expected = Some(device_id.clone());
                     self.status_message = Some("Rejecting pairing...".to_string());
                     return cosmic::app::Task::perform(
                         reject_pairing_async(conn.clone(), device_id),
@@ -984,6 +1008,18 @@ impl Application for ConnectApplet {
                         cosmic::Action::App,
                     );
                 }
+            }
+            Message::PairingFailed { device_id, error } => {
+                // Our Reject/Cancel routes through the daemon's cancelPairing, which
+                // reports back as pairingFailed("Cancelled by user") — confirmed on
+                // the wire 2026-07-29. Don't show an error for a deliberate action.
+                if self.pairing_cancel_expected.as_deref() == Some(device_id.as_str()) {
+                    self.pairing_cancel_expected = None;
+                    tracing::debug!("Ignoring self-initiated pairing cancel for {}", device_id);
+                    return cosmic::app::Task::none();
+                }
+                tracing::warn!("Pairing failed for {}: {}", device_id, error);
+                self.pairing_error = Some((device_id, error));
             }
             Message::DbusSignalReceived => {
                 // D-Bus signal received - debounce to avoid excessive refreshes.
@@ -1842,7 +1878,14 @@ impl Application for ConnectApplet {
             ViewMode::DevicePage => {
                 if let Some(device_id) = &self.selected_device {
                     if let Some(device) = self.devices.iter().find(|d| &d.id == device_id) {
-                        ui::device_page::view(device, self.status_message.as_deref())
+                        ui::device_page::view(
+                            device,
+                            self.status_message.as_deref(),
+                            self.pairing_error
+                                .as_ref()
+                                .filter(|(id, _)| id == &device.id)
+                                .map(|(_, err)| err.as_str()),
+                        )
                     } else {
                         ui::device_list::view(
                             &self.devices,

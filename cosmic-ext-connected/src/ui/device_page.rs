@@ -25,7 +25,11 @@ fn device_type_label(device_type: &str) -> String {
 }
 
 /// Render the device detail page.
-pub fn view<'a>(device: &'a DeviceInfo, status_message: Option<&'a str>) -> Element<'a, Message> {
+pub fn view<'a>(
+    device: &'a DeviceInfo,
+    status_message: Option<&'a str>,
+    pairing_error: Option<&'a str>,
+) -> Element<'a, Message> {
     let sp = cosmic::theme::spacing();
     let class = DeviceClass::from_device_type(&device.device_type);
 
@@ -287,6 +291,14 @@ pub fn view<'a>(device: &'a DeviceInfo, status_message: Option<&'a str>) -> Elem
     if let Some(actions_elem) = actions {
         content = content.push(divider());
         content = content.push(actions_elem);
+    }
+
+    // Pairing failure reason, shown under the Pair action it explains.
+    if let Some(err) = pairing_error {
+        content = content.push(applet::padded_control(text::caption(fl!(
+            "pairing-failed",
+            error = err
+        ))));
     }
 
     if needs_pairing_section(device) {

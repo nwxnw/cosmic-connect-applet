@@ -1,6 +1,10 @@
 # Changelog
 
 ## [0.7.0] - TBD
+### Added
+- Pairing failures now say why. A pairing attempt that is rejected, times out, or can't reach the
+  device shows the reason, instead of quietly reverting to the Pair button.
+
 ### Changed
 - `just install` no longer requires sudo. Building from source now installs to `~/.local` by default. 
 - The conversation list shows more conversations and scrolls, instead of paging.
