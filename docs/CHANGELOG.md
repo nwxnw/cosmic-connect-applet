@@ -12,6 +12,9 @@
 - The conversation list loads faster and more reliably. Reworked how conversations are ingested from KDE Connect, removing redundant reloads and a rare request storm.
 - Opening a conversation while KDE Connect is briefly busy now retries instead of showing an empty thread.
 - Sending a new message no longer leaves a sync indicator stuck on the conversation list. It clears as soon as the new conversation arrives from your phone, and on its own shortly after if the phone never reports one.
+- A single SMS error no longer shuts down the whole SMS view. Connections to KDE Connect are also retried now instead of giving up on the first attempt.
+- A conversation that reloads after reconnecting now shows exactly the messages a freshly opened one would.
+- Scrolling back through older messages after KDE Connect restarted could crash KDE Connect's background service. Connected now requests older messages in a way the service can always satisfy.
 
 
 ## [0.6.0] - 2026-06-24
