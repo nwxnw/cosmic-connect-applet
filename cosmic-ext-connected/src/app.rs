@@ -1372,6 +1372,21 @@ impl Application for ConnectApplet {
                         SmsLoadingState::Idle
                     };
                 }
+
+                // Reset the thread's scroll offset on the way out, not the list's.
+                // iced matches scrollable widget state by tree position, not by id
+                // (a scrollable reports Internal::Set from Widget::id(), which no
+                // name-matching path in libcosmic accepts), so the conversation list
+                // lands on the slot the message thread just vacated and inherits its
+                // offset - which thread-open pinned to END, i.e., the oldest
+                // conversation. The same positional match overwrites the list
+                // scrollable's own id, so "message-thread" is the id it answers to
+                // here. If that alignment ever changes, the list gets fresh state
+                // (offset 0, newest first) and this becomes a harmless no-op
+                return scrollable::snap_to(
+                    widget::Id::new("message-thread"),
+                    scrollable::RelativeOffset::START.into(),
+                );
             }
 
             // Subscription-based conversation list loading handlers
