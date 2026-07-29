@@ -15,6 +15,7 @@
 - A single SMS error no longer shuts down the whole SMS view. Connections to KDE Connect are also retried now instead of giving up on the first attempt.
 - A conversation that reloads after reconnecting now shows exactly the messages a freshly opened one would.
 - Scrolling back through older messages after KDE Connect restarted could crash KDE Connect's background service. Connected now requests older messages in a way the service can always satisfy.
+- An open conversation now reloads by itself after KDE Connect restarts or your phone reconnects, instead of sitting on stale messages until you back out and open it again.
 
 
 ## [0.6.0] - 2026-06-24
