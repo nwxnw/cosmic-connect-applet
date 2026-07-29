@@ -641,6 +641,22 @@ impl Application for ConnectApplet {
                         .find(|d| d.id == sms_id)
                         .map(|d| d.is_reachable)
                         .unwrap_or(false);
+                    // The recovery edge is computed from `self.devices` (our previous
+                    // view) against the fetch that just landed. A failed fetch leaves
+                    // `self.devices` untouched, so a stale `true` can make a genuine
+                    // reconnect read as `true -> true` and skip the bump entirely.
+                    // Log the pair so that comparison is observable, not inferred. See D.30.
+                    tracing::debug!(
+                        "SMS device {} reachability: was={} now={} (bump {})",
+                        sms_id,
+                        was_reachable,
+                        now_reachable,
+                        if !was_reachable && now_reachable {
+                            "FIRES"
+                        } else {
+                            "skipped"
+                        }
+                    );
                     if !was_reachable && now_reachable {
                         if self.sms.conversation_list_subscription_active {
                             self.sms.conversation_list_subscription_generation = self
@@ -656,10 +672,10 @@ impl Application for ConnectApplet {
                         }
                         if self.sms.conversation_load_active {
                             // Recovery re-runs Init, so it must also re-run the load
-                            // bookkeeping OvenConversation does - otherwise the
+                            // bookkeeping OpenConversation does - otherwise the
                             // re-streamed page is deduped against stale uids and
                             // `messages` becomes the union of pre- and post-restart
-                            // data. Mirros app.rs OpenConversation. See D.25.
+                            // data. Mirrors app.rs OpenConversation. See D.25.
                             self.sms.messages_has_more = true;
                             self.sms.older_page = None;
                             self.sms.thread_has_more = self
