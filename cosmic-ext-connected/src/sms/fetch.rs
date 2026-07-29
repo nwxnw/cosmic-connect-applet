@@ -11,11 +11,19 @@ use zbus::Connection;
 /// through its normal phase-3 path (`subscriptions.rs`), so this fires the
 /// request and returns - it does NOT collect the reply. Completion is detected
 /// in the store from the streamed messages / `ConversationStoreLoaded`.
+///
+/// The request is always issued from offset **0**, widening the range rather than
+/// advancing it: `[0, loaded_count + count)`. The daemon serves newest-first, so
+/// this returns the same older page, and `crbegin() + 0` can never run past the
+/// end of its cache. A non-zero offset against a cache holding fewer messages
+/// segfaults kdeconnectd 23.08.5 and silently returns nothing on 26.04+. The
+/// applet cannot know the daemon's cache size - every count it holds is stale in
+/// exactly that scenario - so the offset is pinned rather than clamped. See D.29.
 pub async fn request_older_messages_async(
     conn: Arc<Mutex<Connection>>,
     device_id: String,
     thread_id: i64,
-    start_index: u32,
+    loaded_count: u32,
     count: u32,
 ) -> Message {
     let conn = conn.lock().await;
@@ -45,13 +53,13 @@ pub async fn request_older_messages_async(
     };
 
     tracing::debug!(
-        "requesting older messages for thread {} (messages {}-{})",
+        "requesting older messages for thread {} (requesting 0-{}, {} already loaded)",
         thread_id,
-        start_index,
-        start_index + count
+        loaded_count + count,
+        loaded_count
     );
     match conversations_proxy
-        .request_conversation(thread_id, start_index as i32, (start_index + count) as i32)
+        .request_conversation(thread_id, 0, (loaded_count + count) as i32)
         .await
     {
         Ok(()) => Message::OlderMessagesRequested {

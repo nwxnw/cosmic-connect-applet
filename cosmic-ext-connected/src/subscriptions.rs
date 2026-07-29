@@ -51,16 +51,18 @@ where
 }
 
 /// Re-issue `requestConversation` on the Conversations interface as part of the
-/// first-open truncation recovery path. Offset semantics match KDE Connect's
-/// `ConversationModel::requestMoreMessages`: `start = numKnown`,
-/// `end = numKnown + howMany`. The daemon worker treats `[start, end)` as
-/// indices into the local store sorted newest-first, so this asks for the
-/// older messages we haven't seen yet.
+/// first-open truncation recovery path. The daemon worker treats `[start, end)`
+/// as indices into the local store sorted newest-first.
+///
+/// `start` is pinned to **0** and only `end` varies. Requesting `[numKnown, …)` -
+/// the contract this used to follow - segfaults kdeconnectd 23.08.5 whenever the
+/// daemon's cache holds fewer than `numKnown` messages, which is routine after a
+/// daemon restart. Serving from 0 returns the same messages newest-first and can
+/// never index past the end. See D.29.
 async fn fire_retry_request(
     conn: &Connection,
     device_id: &str,
     thread_id: i64,
-    start: i32,
     end: i32,
 ) -> Result<(), String> {
     let device_path = format!("{}/devices/{}", kdeconnect_dbus::BASE_PATH, device_id);
@@ -71,7 +73,7 @@ async fn fire_retry_request(
         .await
         .map_err(|e| format!("build: {}", e))?;
     proxy
-        .request_conversation(thread_id, start, end)
+        .request_conversation(thread_id, 0, end)
         .await
         .map_err(|e| format!("call: {}", e))
 }
@@ -1037,12 +1039,11 @@ pub fn conversation_message_subscription(
                                             thread_id,
                                             received_message_count
                                         );
-                                        let start = received_message_count as i32;
-                                        let end = start + messages_per_page as i32;
-                                        match fire_retry_request(
-                                            &conn, &device_id, thread_id, start, end,
-                                        )
-                                        .await
+                                        let end = (received_message_count
+                                            + messages_per_page as usize)
+                                            as i32;
+                                        match fire_retry_request(&conn, &device_id, thread_id, end)
+                                            .await
                                         {
                                             Ok(()) => {
                                                 tracing::info!(
@@ -1233,15 +1234,11 @@ pub fn conversation_message_subscription(
                                                                     message_count,
                                                                     received_message_count
                                                                 );
-                                                                let start =
-                                                                    received_message_count as i32;
-                                                                let end = start
-                                                                    + messages_per_page as i32;
+                                                                let end = (received_message_count
+                                                                    + messages_per_page as usize)
+                                                                    as i32;
                                                                 if let Err(e) = fire_retry_request(
-                                                                    &conn,
-                                                                    &device_id,
-                                                                    thread_id,
-                                                                    start,
+                                                                    &conn, &device_id, thread_id,
                                                                     end,
                                                                 )
                                                                 .await
