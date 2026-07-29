@@ -5,6 +5,8 @@
 - `just install` no longer requires sudo. Building from source now installs to `~/.local` by default. 
 - The conversation list shows more conversations and scrolls, instead of paging.
 - The conversation list keeps a consistent height. Filling the list no longer stretches the popup taller and taller.
+- The Refresh button now asks KDE Connect to re-scan the network for your devices, instead of only re-reading what
+    it already knew.
 
 ### Fixed
 - Reaction-over-SMS conversations stay merged as they age and scrolling to older messages works in merged conversations.
