@@ -17,7 +17,10 @@ pub async fn fetch_devices_async(conn: Arc<Mutex<Connection>>) -> Message {
     let daemon = match DaemonProxy::new(&conn).await {
         Ok(d) => d,
         Err(e) => {
-            return Message::Error(format!("Failed to connect to KDE Connect daemon: {}", e));
+            return Message::DeviceFetchFailed(format!(
+                "Failed to connect to KDE Connect daemon: {}",
+                e
+            ));
         }
     };
 
@@ -25,7 +28,7 @@ pub async fn fetch_devices_async(conn: Arc<Mutex<Connection>>) -> Message {
     let device_ids = match daemon.devices().await {
         Ok(ids) => ids,
         Err(e) => {
-            return Message::Error(format!("Failed to get device list: {}", e));
+            return Message::DeviceFetchFailed(format!("Failed to get device list: {}", e));
         }
     };
 

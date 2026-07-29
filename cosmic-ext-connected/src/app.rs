@@ -57,6 +57,10 @@ pub enum Message {
     DbusConnectionFailed(String),
     /// Error occurred
     Error(String),
+    /// The device fetch failed, so no device's reachability is currently known.
+    /// Distinct from `Error` because subscriptions also emit that for failures
+    /// which say nothing about device state. See D.30.
+    DeviceFetchFailed(String),
 
     // Navigation
     /// Select a device to view its detail page
@@ -724,6 +728,22 @@ impl Application for ConnectApplet {
             }
             Message::Error(err) => {
                 tracing::error!("Error: {}", err);
+                self.error = Some(err);
+                self.loading = false;
+            }
+            Message::DeviceFetchFailed(err) => {
+                // We could not reach the daemon, so no device's reachability is
+                // known. Leaving the last-known `true` in place makes the next
+                // successful fetch read as `true -> true`, and the recovery edge
+                // in DevicesUpdated never fires - the daemon restarts, the phone
+                // reconnects inside the refresh debounce, and the open thread
+                // stays frozen. Mark unreachable rather than clearing: names,
+                // battery and notifications survive, and the device list does
+                // not flash empty. See D.30.
+                tracing::warn!("Device fetch failed, marking devices unreachable: {}", err);
+                for d in &mut self.devices {
+                    d.is_reachable = false;
+                }
                 self.error = Some(err);
                 self.loading = false;
             }
