@@ -75,6 +75,30 @@ fn view(&self) -> Element<'_, Self::Message>
 fn view_window(&self, _id: window::Id) -> Element<'_, Self::Message>
 ```
 
+## Scrollable identity
+
+**A scrollable's widget state is matched by tree position, never by name.** Two scrollables at
+the same child index in different views share state.
+
+`Scrollable::id()` returns `Internal::Set`, and every name-matching path in libcosmic's
+vendored iced gates on `Internal::Custom` - the `NAMED` state harvest, the `NAMED` restore,
+and the sibling `id_map` in `diff_children_custom`. A scrollable enters none of them, so it
+falls through to positional matching, and the matched slot's id is then **force-copied onto
+the new widget**.
+
+Two consequences:
+
+- **`.id()` on a scrollable is an operation target only, not a diff identity.** It makes
+  `scrollable::snap_to` / `scroll_to` able to find the widget; it does not stop the widget
+  from inheriting another scrollable's offset.
+- **`set_id` overwrites what you set.** After a positional match, the widget answers to the
+  id of the slot it landed in, not the one in your `view()`.
+
+So a scroll-position bug between two views is fixed by resetting the *donor's* offset, not the
+recipient's - see `docs/KNOWN_ISSUES.md` → "Conversation List Scroll Position". Verify against
+`vendor/iced_core/src/widget/tree.rs` and `vendor/iced_widget/src/scrollable.rs`, **not**
+`~/.cargo` (which holds unrelated revs).
+
 ## Clickable List Item Pattern
 
 Actions use clickable list item style:

@@ -1395,7 +1395,7 @@ impl Application for ConnectApplet {
 
                 // The conversation-list subscription is still live and already holds
                 // everything a refetch would find, so this is a re-assert rather than a
-                // repais: since D.26 (E045ED5) SmsError no longer clears view-lifecycle
+                // repair: since D.25 (e045ed5) SmsError no longer clears view-lifecycle
                 // flags, and only CloseSmsView does. Let the live subscription drive the list.
                 if self.sms.sms_device_id.is_some() {
                     self.sms.conversation_list_subscription_active = true;

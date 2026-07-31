@@ -152,3 +152,24 @@ The daemon exposes `requestConversation` on two interfaces with **different beha
 - **`org.kde.kdeconnect.device.conversations`** (at `/devices/{id}`): Creates a `RequestConversationWorker` that reads from a local persistent store and emits `conversationUpdated` D-Bus signals, but does **NOT** populate `m_conversations`.
 
 Thread loading fires both: SMS plugin first (cache priming for replies), then Conversations interface (per-message signals for UI). See `docs/SMS.md` "Cache Priming".
+
+### Pagination offsets: always request from 0
+
+`requestConversation(conversationID, start, end)` on the Conversations interface has **no bounds check between the wire and the daemon's iterator arithmetic**. An out-of-range `start` dereferences past the end of the daemon's cached list: on kdeconnect 23.08.5 (Pop!_OS 24.04) that is a **SIGSEGV, and the daemon does not come back** - it is not D-Bus-activatable, so systemd leaves the unit failed and the user loses all KDE Connect functionality until they restart it manually. Newer daemons turn the crash into a silent "emit nothing, return Ok".
+
+Always pass `start = 0` and vary only `end`. See `docs/SMS.md` → "Older Message Loading".
+
+### Match rules are not uniformly scoped
+
+- `subscriptions.rs` registers a rule filtered **only on the daemon's sender name**, with no interface or member filter, then accepts or drops each signal in an `is_relevant` match. A new daemon-emitted signal needs **no new match rule** here - only a new branch. 
+- `sms/conversation_subscription.rs` registers **member-scoped** rules, one per signal (`conversationCreated`, `conversationUpdated`, `conversationLoaded`). A new signal there **does** need its own rule, or it never arrives.
+
+Do not carry the conclusion from one file to the other.
+
+### `isReachable` is not "the phone can be reached"
+
+Upstream, `Device::isReachable()` is `!m_deviceLinks.isEmpty()` - a link *object* exists. A half-open TCP connection reports reachable for up to ~16 minutes. There is no D-Bus surface exposing link count, socket health, or last-seen, so this cannot be detected in-app. See `docs/KNOWN_ISSUES.md`.
+
+### A void method's `Ok` is not an acknowledgement
+
+`replyToConversation` and `sendSms` have **no out parameters** and cannot report delivery, and the daemon's send returns success as soon as the write buffers - which succeeds on a dead-but-ESTABLISHED socket. `Ok` means "the D-Bus call worked". The only evidence a message was delivered is the phone echoing it back.
