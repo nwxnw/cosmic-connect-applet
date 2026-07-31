@@ -86,7 +86,7 @@ const ATTACHMENT_TIMEOUT_SECS: u64 = 30;
 /// Request a full-size attachment from the phone and wait for delivery.
 ///
 /// 1. Calls `getAttachment(part_id, unique_identifier)` on the SMS plugin
-/// 2. Watches for the file to appear in `~/.cache/kdeconnect/<device_name>/`
+/// 2. Watches for the file to appear in `.cache/kdeconnect/<device_name>/`
 /// 3. Returns `AttachmentReady(file_path)` or `AttachmentError`
 pub async fn request_attachment_async(
     conn: Arc<Mutex<Connection>>,
