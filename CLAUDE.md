@@ -162,6 +162,32 @@ fn is_charging(&self) -> zbus::Result<bool>;
 - Prefer explicit error handling over `.unwrap()`
 - Use `fl!()` for all UI strings
 
+## Daemon Interaction — standing rules
+
+Hard-won constraints on how this applet talks to `kdeconnectd`. Each is here because violating
+it has cost real time. Mechanism lives in `docs/SMS.md` / `docs/DBUS.md` / `docs/UI_PATTERNS.md`.
+
+- **Signals are broadcasts, not request/response.** No request ID, no correlation to the caller,
+  no guarantee a call emits anything. **The tell is a timeout** — if completion is detected by
+  waiting out a clock, that is the bug. Derive completion locally.
+- **Capture before naming the culprit.** A mechanism read off a plausible code path has been
+  wrong here repeatedly. Before proposing a fix: `dbus-monitor` unfiltered, or one
+  `tracing::debug!`, or the journal already on disk. **`dbus-monitor` is the authority on signal
+  order; the journal is not** — the subscription logs at stream-read time and `update()` logs at
+  process time (`docs/LOGGING.md`).
+- **Never send a `requestConversation` offset > 0.** An out-of-range `start` segfaults
+  kdeconnectd 23.08.5 and silently returns nothing on newer daemons. Pin `start = 0` and widen
+  the range end; clamping against a known count is circular (`docs/DBUS.md`).
+- **Name the thing that clears any new state field.** A subscription may not clear a flag it did
+  not set; it terminates itself with `Done`. Every instance of this bug so far has been the same
+  shape — one field with two owners, typically a view-lifecycle flag written by an error path.
+- **`Ok` is not an acknowledgement, and `isReachable` is not reachability.** A void D-Bus method
+  cannot report delivery; `isReachable` reports that a link *object* exists (`docs/DBUS.md`).
+- **In `app.rs` `update()` arms, check whether a new statement runs on every path or inside the
+  guard above it.** Clippy stays silent; the tell is the indent. `cargo fmt` before committing.
+- **Scrollable state is matched positionally, never by name.** `.id()` on a scrollable is an
+  operation target only, and `set_id` overwrites it (`docs/UI_PATTERNS.md`).
+
 ## Detailed Documentation
 
 Implementation details live under `docs/`. Read the relevant file before working in that area — most cross-cutting pitfalls (the two `requestConversation` methods, `conversationLoaded` unreliability, subscription phase machines, optimistic-send reconciliation, MMS cache path, COSMIC notification daemon's `expire_timeout` quirk, etc.) are documented there, not in this file.
