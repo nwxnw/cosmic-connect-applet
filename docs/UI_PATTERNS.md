@@ -95,7 +95,9 @@ Two consequences:
   id of the slot it landed in, not the one in your `view()`.
 
 So a scroll-position bug between two views is fixed by resetting the *donor's* offset, not the
-recipient's - see `docs/KNOWN_ISSUES.md` → "Conversation List Scroll Position". Verify against
+recipient's. That is why `Message::CloseConversation` snaps the **message thread's** scrollable to
+`START` on the way out: thread-open pins that scrollable to `END`, the conversation list is about
+to adopt the state, and targeting the list's own id cannot work. Verify against
 `vendor/iced_core/src/widget/tree.rs` and `vendor/iced_widget/src/scrollable.rs`, **not**
 `~/.cargo` (which holds unrelated revs).
 

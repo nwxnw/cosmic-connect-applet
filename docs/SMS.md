@@ -1,22 +1,22 @@
 # SMS Implementation Notes
 
-Current SMS behavior in Connected, plus known limitations and possible follow-up work.
+How Connected's SMS surface works today, and the constraints a change must not break.
 
-## Current Status
+## What exists today
 
-Implemented:
+Connected reads SMS over `kdeconnectd`'s Conversations and SMS-plugin D-Bus interfaces. Two kinds
+of long-lived subscription drive it: one for the conversation list, and one per underlying
+threadId of the open conversation. Both are cache-first then signal-driven — a single cache read
+per subscription for immediate display, then everything else arrives as broadcast signals.
 
-- Conversation-list bootstrap is cache-first and primarily signal-driven.
-- Bootstrap re-reads `activeConversations()` during initial sync, settles after a quiet window, and retries once on suspiciously small cold-start results.
-- Warm starts preserve cached timeout semantics instead of fabricating activity.
-- Conversation threads use a long-lived subscription with deferred initial scroll, pagination, and optimistic reply reconciliation.
-- Device selection can prefetch cached conversation heads before the SMS view opens.
+Reaction-bucket threads — separate `threadId`s the phone shows as one conversation — are merged
+into a `LogicalConversation` before anything renders. Most list, pagination and reply-target logic
+therefore operates on a *set* of threadIds rather than one, which is the assumption most worth
+checking before changing anything here.
 
-Possible next steps:
-
-- Reduce the differences between conversation-list and thread-loading synchronization models.
-- Keep reviewing thread correctness around deduplication, pagination heuristics, notification interaction, scroll preservation, and reply/cache-priming assumptions.
-- Keep bootstrap logging focused on cache size, signal activity, retry use, and final settled counts.
+The daemon offers no reliable "done" event, so both subscriptions derive settlement locally: the
+list on a quiet window with one cold-start retry, threads on a full page received. Selecting a
+device prefetches conversation heads with `activeConversations()` so the SMS view can open warm.
 
 ## Architecture Overview
 
@@ -35,7 +35,7 @@ Important details:
 
 - Warm starts use cached rows immediately and a shorter bootstrap window.
 - Cold starts use a longer wait and one bounded retry.
-- The daemon cache is read exactly once, before bootstrap requests fire. Everything after that arrives as signals, and there is no follow-up poll — a missed signal is not backfilled by a later cache read.
+- The conversation-list subscription reads the daemon cache exactly once, before its bootstrap requests fire. Everything after that arrives as signals, and there is no follow-up poll — a missed signal is not backfilled by a later cache read.
 
 ### Message Thread Loading
 
@@ -53,7 +53,6 @@ Thread loading uses a long-lived subscription with distinct startup phases:
 Important details:
 
 - The list is rendered oldest-first, so an unscrolled scrollable lands on the oldest message. Auto-scroll-to-bottom is dispatched on `ConversationStoreLoaded`, on `ConversationLoadComplete`, on each `ConversationMessageReceived` while `!initial_load_complete`, and on confirmed sent-message echoes. The per-message dispatch covers cached-store hits where the daemon's worker satisfies the request entirely from `m_conversations` and never emits `conversationLoaded` (see `requestconversationworker.cpp`'s `numHandled >= howMany` branch), which would otherwise leave the user pinned at the top of a long thread.
-- `conversationLoaded` reflects local-store count, not authoritative phone total.
 - `initial_load_complete` gates scroll-based loading of older messages, and bounds the per-message auto-scroll so a new incoming SMS arriving while the user is reading older content doesn't yank them down.
 - The daemon writes phone-supplied messages to the local store asynchronously, so the first-open Conversations worker may finish before that data lands. The daemon's `addMessages()` only emits `conversationUpdated` for the latest message in a thread, so historical backfill from the phone arrives silently — observable only via a second `conversationLoaded(count)` emission with a higher count than we've received. Recovery is bounded to one re-issued `requestConversation` per thread open, with two triggers:
   - **Primary** (Option 1): a duplicate `conversationLoaded` arrives with `store_count > received_message_count` while we're still under-filled (`received < messages_per_page`). The retry fires immediately. Catches both the original "received only 1 of N" truncation and the off-by-one "received N-1 of N" case where the daemon's worker emits one fewer per-message signal than its store reports. The page-size guard avoids firing on natural scroll-pagination boundaries.
@@ -85,11 +84,11 @@ Multi-subscription completion semantics:
 
 When the user sends a reply into a conversation, Connected picks the threadId to pass to `replyToConversation` based on the merge state of the open conversation:
 
-- **Symmetric merge** (canonical address-sets equal across the merged group — the case M7's primary-equality heuristic produces): redirect to `primary_thread_id`. This matches AOSP's outgoing-reply canonicalization, so the echo lands on the threadId Connected passed and the optimistic-send reconciliation can complete cleanly. As a side effect, the redirect bypasses AOSP's per-bucket processing that would otherwise produce **recipient-side duplicate delivery** — the recipient receives one copy instead of two.
-- **Asymmetric / subset clause** (untested across captured pairs; reintroduced if/when the subset clause returns to the merge heuristic): preserve the displayed thread's threadId. Conservative until field data confirms the redirect is address-safe under subset shapes. The branch is dormant under M7's primary-equality heuristic — every merged set is symmetric by construction — so production paths today take the symmetric arm exclusively.
+- **Symmetric merge** (canonical address-sets equal across the merged group — the case the primary-equality heuristic produces): redirect to `primary_thread_id`. This matches AOSP's outgoing-reply canonicalization, so the echo lands on the threadId Connected passed and the optimistic-send reconciliation can complete cleanly. As a side effect, the redirect bypasses AOSP's per-bucket processing that would otherwise produce **recipient-side duplicate delivery** — the recipient receives one copy instead of two.
+- **Asymmetric / subset clause** (untested; reintroduced if/when the subset clause returns to the merge heuristic): preserve the displayed thread's threadId. Conservative until field data confirms the redirect is address-safe under subset shapes. The branch is dormant under the primary-equality heuristic — every merged set is symmetric by construction — so production paths today take the symmetric arm exclusively.
 - **Non-merged or unknown thread**: pass the displayed threadId through unchanged.
 
-The duplicate-delivery side effect is empirically locked. Pre-merge behavior on a known reaction-bucket pair (Pair 4 captured 2026-05-02) reproduced two-copy delivery to the recipient. Under the redirect, the same pair delivers one copy. The redirect is therefore a corrective fix for a recipient-visible bug, not just a display-merge convenience.
+The duplicate-delivery side effect is empirically locked. Pre-merge behavior on a known reaction-bucket pair reproduced two-copy delivery to the recipient. Under the redirect, the same pair delivers one copy. The redirect is therefore a corrective fix for a recipient-visible bug, not just a display-merge convenience.
 
 The reply-target rule applies only when merging is on. With merging off (see "Per-entry markers and SMS-view toggle" below), Connected sends to whichever underlying thread the user opened. Replying into the non-canonical sibling thread of a reaction-bucket pair will reproduce the AOSP-canonicalization symptoms — the echo arrives on the canonical primary instead of the displayed thread, the optimistic-send "Sending…" indicator can stay pinned, and the recipient may receive duplicate copies. This is documented behavior gated behind the user opt-out, not a regression.
 
@@ -100,7 +99,7 @@ The SMS conversation list shows a small marker on rows that participate in a rea
 - **Merge marker** (visible when the merge toggle is on): rows whose `LogicalConversation.merged_thread_ids.len() > 1` show a converging-Y glyph next to the message preview. Indicates "this conversation merges multiple phone-side threads."
 - **Split marker** (visible when the merge toggle is off): rows whose underlying thread has at least one reaction-bucket sibling in the conversation list show a parallel-arrows glyph next to the message preview. Indicates "this conversation has a sibling thread on the phone; turning the merge toggle on would combine them."
 
-A header toggle in the SMS view (between the conversation-list title and the new-message button) switches between merged and split states. The toggle uses the same iconography as the per-entry markers — converging-Y when merging is on, parallel-arrows when off — and dispatches the same `Message::ToggleSetting(SettingKey::MergeReactionThreads)` as the M13 settings option, so the two surfaces share state automatically. Toggling either one updates the other, and the toggle state persists across applet restarts.
+A header toggle in the SMS view (between the conversation-list title and the new-message button) switches between merged and split states. The toggle uses the same iconography as the per-entry markers — converging-Y when merging is on, parallel-arrows when off — and dispatches the same `Message::ToggleSetting(SettingKey::MergeReactionThreads)` as the settings-page option, so the two surfaces share state automatically. Toggling either one updates the other, and the toggle state persists across applet restarts.
 
 The merge-off path uses the same grouping key as the merge-on path, so any pair the merge logic *would* combine also appears as split-marker entries when the user has merging off. When the v0.6.0+ subset clause returns to the heuristic, both surfaces pick it up automatically without further coordination.
 
@@ -115,6 +114,28 @@ Older messages are loaded automatically when the user scrolls near the top of th
 For merged conversations the fetch fans out: one request per threadId in `current_merged_thread_ids` that still has more to give (`thread_has_more`), each carrying its own already-loaded count. The page is held open until every targeted thread has answered (`OlderPageLoad.pending`), so the prepend and the scroll-offset adjustment happen once against the whole batch rather than per thread. `messages_has_more` is the OR across `thread_has_more`, so the thread stops paginating only when every merged thread is exhausted.
 
 Each request is `requestConversation(threadId, 0, loaded_count + page)` — **the offset is pinned to 0 here for the same reason as the truncation retry above**: a non-zero `start` segfaults kdeconnectd 23.08.5.
+
+### Recovery after a restart or reconnect
+
+A `kdeconnectd` restart does not close the applet's session-bus connection, so there is no error
+to key on. Recovery keys instead on the SMS device going **unreachable → reachable** in
+`Message::DevicesUpdated`, comparing the previous `self.devices` against the fetch that just
+landed. ⚠ That edge exists only because a *failed* fetch marks every device unreachable
+(`Message::DeviceFetchFailed`); leaving the last-known `true` in place makes the next success read
+`true → true`, the edge never fires, and an open thread stays frozen. Do not "fix" that handler to
+preserve reachability.
+
+There is one lever: **a subscription's generation counter is part of its iced recipe key**, so
+bumping it makes iced drop and re-`Init` the recipe, re-firing its requests from scratch. Two
+counters exist — one for the conversation list, one shared by the per-thread message subscriptions
+— bumped independently, each behind its own view-lifecycle flag. Nothing can command a running
+subscription; this is the only way to restart one.
+
+The message bump also resets the thread's load bookkeeping (`messages`, `known_message_ids`,
+`thread_has_more`, `older_page`, `messages_has_more`, `initial_load_complete`), mirroring
+`OpenConversation`. Without it the re-streamed page dedups against stale uids and `messages`
+becomes the union of pre- and post-restart data — so a recovered thread is a fresh first page, not
+a merge.
 
 ## Sending Behavior
 
@@ -134,23 +155,17 @@ For merged conversations, optimistic-send reconciliation matches by `OPTIMISTIC_
 
 New-message compose uses `sendWithoutConversation(addresses, message, attachments)` with explicit recipients. On success, the compose flow returns to the conversation list and keeps the conversation-list subscription active so the phone can sync back the resulting thread.
 
-### Cache Priming
+### Sync indicator
 
-Thread loading fires two requests because they serve different purposes:
+The conversation list's sync indicator is the OR of **two independent flags** (`sync_active` in
+`store.rs`): `conversation_sync_active`, owned by the list subscription's settle cycle, and
+`new_message_sync_active`, owned by the post-send wait — set after a send and cleared by any list
+change, or by `NEW_MESSAGE_SYNC_INDICATOR_SECS` if the phone never reports one. ⚠ **Do not merge
+them.** One flag doing both jobs is a fixed bug: the two lifecycles clear on different events, so
+a send left the indicator stuck. Merging also breaks the cold-start spinner, which depends on the
+settle cycle owning its own flag.
 
-- the SMS plugin request populates the daemon's in-memory `m_conversations` cache
-- the Conversations request emits the per-message signals used by the UI
-
-Reply sending depends on the first; thread rendering depends on the second.
-
-## Loading and Caching
-
-Loading state is tracked with `SmsLoadingState`:
-
-- `Idle`
-- `LoadingConversations(Connecting|Requesting)`
-- `LoadingMessages(Connecting|Requesting)`
-- `LoadingMoreMessages`
+## Caching
 
 Caching behavior:
 
@@ -174,6 +189,11 @@ The KDE Connect daemon sets its Qt application name to `"kdeconnect.daemon"` in 
 - `conversationLoaded` reports the local persistent-store count, not the phone's authoritative total.
 - Reply sending still depends on daemon cache priming before `replyToConversation` can work reliably.
 - Notification correctness depends on careful `last_seen_sms` handling when opening threads and merging incoming data.
+- **A send has no terminal state.** `Ok` from `replyToConversation` / `sendWithoutConversation`
+  means the D-Bus call worked, nothing more (`docs/DBUS.md` → "A void method's `Ok`"); the only
+  evidence of delivery is the phone's echo, so an unconfirmed send stays an optimistic bubble with
+  no failed state. Its conversation-list preview is stamped with local `SystemTime::now()` and the
+  list sorts on that, so until the echo arrives it outranks real phone timestamps.
 
 ## Reference
 
@@ -187,7 +207,7 @@ Messages (see `app.rs`):
 - `ConversationStoreLoaded` — local persistent-store phase finished (triggers initial scroll)
 - `ConversationLoadComplete` — phone-response window elapsed (sets `initial_load_complete`)
 
-- Timeout constants (see `constants.rs`):
+Timeout constants (see `constants.rs`):
 
 - `CONVERSATION_LIST_PHONE_WAIT_MS` — cold-start bootstrap ceiling
 - `CONVERSATION_TIMEOUT_CACHED_SECS` — warm-start bootstrap window
@@ -214,3 +234,4 @@ D-Bus surface:
 - `docs/KNOWN_ISSUES.md`
 - `docs/NOTIFICATIONS.md`
 - `docs/DBUS.md`
+- `docs/UI_PATTERNS.md`
