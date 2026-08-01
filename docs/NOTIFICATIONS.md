@@ -150,6 +150,7 @@ Key points:
 - 2-second deduplication window
 - Static variables NOT shared between applet instances
 - Call dedup key includes event type so `callReceived` and `missedCall` for the same number are treated as distinct notifications
+- **No key carries a device id.** The SMS key is `{thread_id}:{message_date}`, and thread ids are assigned by the phone, so two paired phones can collide within the 2-second window and one notification is silently dropped. Latent today — it needs two paired devices sending at the same instant on colliding thread ids — but any key change should add the device id rather than assume uniqueness.
 
 ## Duplicate Notifications from KDE Connect
 
