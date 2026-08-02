@@ -29,7 +29,6 @@ pub fn view_settings(config: &Config) -> Element<'_, Message> {
         widget::column::with_children(vec![
             text::caption(fl!("notification-duplicate-hint")).into(),
             widget::button::link(fl!("learn-more"))
-                .trailing_icon(true)
                 .on_press(Message::OpenUrl(
                     "https://github.com/nwxnw/cosmic-ext-connected#duplicate-notifications-with-kde-connect"
                         .to_string(),
@@ -131,12 +130,10 @@ pub fn view_about() -> Element<'static, Message> {
     let about_summary = text::caption(fl!("about-summary"));
     let app_version = text::body(format!("v{}", env!("CARGO_PKG_VERSION")));
     let about_homepage = widget::button::link(fl!("about-homepage"))
-        .trailing_icon(true)
         .on_press(Message::OpenUrl(
             "https://github.com/nwxnw/cosmic-ext-connected".to_string(),
         ));
     let about_issues = widget::button::link(fl!("about-issues"))
-        .trailing_icon(true)
         .on_press(Message::OpenUrl(
             "https://github.com/nwxnw/cosmic-ext-connected/issues".to_string(),
         ));
