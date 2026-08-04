@@ -1,29 +1,24 @@
 # Changelog
 
-## [0.7.0] - TBD
+## [0.7.0] - 2026-08-04
 ### Added
-- Pairing failures now say why. A pairing attempt that is rejected, times out, or can't reach the
-  device shows the reason, instead of quietly reverting to the Pair button.
+- Pairing failures now say why. A pairing attempt that is rejected, times out, or can't reach the device shows the reason, instead of quietly reverting to the Pair button.
 
 ### Changed
 - `just install` no longer requires sudo. Building from source now installs to `~/.local` by default. 
 - The conversation list shows more conversations and scrolls, instead of paging.
 - The conversation list keeps a consistent height. Filling the list no longer stretches the popup taller and taller.
-- The Refresh button now asks KDE Connect to re-scan the network for your devices, instead of only re-reading what
-    it already knew.
+- The Refresh button now asks KDE Connect to re-scan the network for your devices, instead of only re-reading what it already knew.
 
 ### Fixed
-- Reaction-over-SMS conversations stay merged as they age and scrolling to older messages works in merged conversations.
-- SMS conversation list now recovers on its own after KDE Connect daemon restarts or phone reconnects.
-- The conversation list loads faster and more reliably. Reworked how conversations are ingested from KDE Connect, removing redundant reloads and a rare request storm.
+- SMS now recovers on its own after KDE Connect restarts or your phone reconnects. The conversation list refreshes, and an open conversation reloads instead of sitting on stale messages until you back out and reopen it.
+- Reaction-over-SMS conversations stay merged as they age, and scrolling back through older messages works in merged conversations.
+- The conversation list loads faster and more reliably.
 - Opening a conversation while KDE Connect is briefly busy now retries instead of showing an empty thread.
-- Sending a new message no longer leaves a sync indicator stuck on the conversation list. It clears as soon as the new conversation arrives from your phone, and on its own shortly after if the phone never reports one.
-- A single SMS error no longer shuts down the whole SMS view. Connections to KDE Connect are also retried now instead of giving up on the first attempt.
-- A conversation that reloads after reconnecting now shows exactly the messages a freshly opened one would.
 - Scrolling back through older messages after KDE Connect restarted could crash KDE Connect's background service. Connected now requests older messages in a way the service can always satisfy.
-- An open conversation now reloads by itself after KDE Connect restarts or your phone reconnects, instead of sitting on stale messages until you back out and open it again.
+- A single SMS error no longer shuts down the whole SMS view.
+- Sending a new message no longer leaves a sync indicator stuck on the conversation list.
 - The conversation list now returns to the newest thread after you view a conversation, instead of jumping to the oldest.
-
 
 ## [0.6.0] - 2026-06-24
 

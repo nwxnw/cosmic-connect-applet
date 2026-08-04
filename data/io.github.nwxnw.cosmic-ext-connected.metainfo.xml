@@ -88,6 +88,28 @@
   </screenshots>
   <content_rating type="oars-1.1" />
   <releases>
+    <release version="0.7.0" date="2026-08-04">
+      <description>
+        <p>Added</p>
+        <ul>
+          <li>Pairing failures now say why. A pairing attempt that is rejected, times out, or can't reach the device shows the reason, instead of quietly reverting to the Pair button.</li>
+        </ul>
+        <p>Changed</p>
+        <ul>
+          <li>The conversation list shows more conversations and scrolls, instead of paging.</li>
+          <li>The conversation list keeps a consistent height. Filling the list no longer stretches the popup taller and taller.</li>
+          <li>The Refresh button now asks KDE Connect to re-scan the network for your devices, instead of only re-reading what it already knew.</li>
+        </ul>
+        <p>Fixed</p>
+        <ul>
+          <li>SMS now recovers on its own after KDE Connect restarts or your phone reconnects: the conversation list refreshes and an open conversation reloads, instead of sitting on stale messages until you back out and reopen it.</li>
+          <li>Reaction-over-SMS conversations stay merged as they age, and scrolling back through older messages works in them.</li>
+          <li>The conversation list loads faster and more reliably.</li>
+          <li>Scrolling back through older messages after KDE Connect restarted could crash KDE Connect's background service. Connected now requests them in a way the service can always satisfy.</li>
+          <li>Sending a new message no longer leaves a sync indicator stuck on the conversation list.</li>
+        </ul>
+      </description>
+    </release>
     <release version="0.6.0" date="2026-06-24">
       <description>
         <p>Added</p>
