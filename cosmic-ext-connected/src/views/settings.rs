@@ -129,14 +129,12 @@ pub fn view_about() -> Element<'static, Message> {
     let app_title = text::title3(fl!("app-title"));
     let about_summary = text::caption(fl!("about-summary"));
     let app_version = text::body(format!("v{}", env!("CARGO_PKG_VERSION")));
-    let about_homepage = widget::button::link(fl!("about-homepage"))
-        .on_press(Message::OpenUrl(
-            "https://github.com/nwxnw/cosmic-ext-connected".to_string(),
-        ));
-    let about_issues = widget::button::link(fl!("about-issues"))
-        .on_press(Message::OpenUrl(
-            "https://github.com/nwxnw/cosmic-ext-connected/issues".to_string(),
-        ));
+    let about_homepage = widget::button::link(fl!("about-homepage")).on_press(Message::OpenUrl(
+        "https://github.com/nwxnw/cosmic-ext-connected".to_string(),
+    ));
+    let about_issues = widget::button::link(fl!("about-issues")).on_press(Message::OpenUrl(
+        "https://github.com/nwxnw/cosmic-ext-connected/issues".to_string(),
+    ));
     let license = text::caption("GPL-3.0");
 
     let identity = widget::column::with_children(vec![
