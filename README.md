@@ -7,7 +7,7 @@ A phone connectivity applet for the [COSMIC](https://github.com/pop-os/cosmic-ep
 ## Features
 
 - **Device Management** - Pair, unpair, and monitor connected devices (phones, tablets, laptops, desktops)
-- **SMS Messaging** - View conversations, reply, and compose new messages with contact lookup
+- **SMS Messaging** - View conversations, reply, and compose new messages with contact lookup; open MMS photo and video attachments
 - **Smart SMS Threading** - Automatically merges conversations that iOS reaction-over-SMS splits into multiple threads on Android, with a one-click toggle to view them split
 - **File Sharing** - Send and receive files and URLs, with desktop notifications
 - **Clipboard Sync** - Send clipboard content to your device
@@ -16,7 +16,7 @@ A phone connectivity applet for the [COSMIC](https://github.com/pop-os/cosmic-ep
 - **Media Controls** - Control music playback (play/pause, next/previous, volume)
 - **Find My Phone** - Ring or ping your phone to locate it
 
- ### SMS Reaction-Thread Merging
+### SMS Reaction-Thread Merging
 
 When someone reacts to an SMS from iOS, Android often files the reaction into a separate thread from the original conversation. Connected detects these split threads and merges them on the desktop side, with a one-click toggle to switch between merged and split views. Merging is on by default and recommended: besides reuniting the conversation, it routes your replies so the recipient receives a single copy. With merging off, replying in a split thread can deliver duplicate copies. Only use the split view if the merge heuristic ever combines conversations it shouldn't.
 
@@ -101,7 +101,8 @@ Uninstall:
 ```sh
 just uninstall
 ```
-If you previously installed via sudo just install, run sudo just uninstall-system once to clear the old system copy.
+
+If you previously installed via `sudo just install`, run `sudo just uninstall-system` once to clear the old system copy.
 
 ## Usage
 
@@ -134,7 +135,7 @@ The cleanest fix would be to mute KDE Connect's toasts at the COSMIC notificatio
 
 Contributions welcome! Please submit issues and pull requests.
 
-See `CLAUDE.md` for detailed development documentation.
+See `docs/` and `CLAUDE.md` for development documentation.
 
 ## License
 
