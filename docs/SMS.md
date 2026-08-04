@@ -109,7 +109,7 @@ Older messages are loaded automatically when the user scrolls near the top of th
 
 - Scroll position and content height are captured before the fetch.
 - Older messages are prepended when they arrive.
-- Scroll offset is adjusted so the user stays anchored near the same visible messages.
+- Scroll offset is adjusted so the user stays anchored near the same visible messages - but only when the page prepended something. A page that settles on re-served duplicates alone skips the adjustment.
 
 For merged conversations the fetch fans out: one request per threadId in `current_merged_thread_ids` that still has more to give (`thread_has_more`), each carrying its own already-loaded count. The page is held open until every targeted thread has answered (`OlderPageLoad.pending`), so the prepend and the scroll-offset adjustment happen once against the whole batch rather than per thread. `messages_has_more` is the OR across `thread_has_more`, so the thread stops paginating only when every merged thread is exhausted.
 
