@@ -39,6 +39,7 @@ paired-offline = Spárováno (offline)
 visible-not-paired = Viditelné, ale nespárované
 pairing-requested-by-device = Žádost o spárování od zařízení
 pairing-request-sent = Žádost o spárování odeslána...
+pairing-failed = Párování selhalo: { $error }
 
 # Device actions
 ping = Ping

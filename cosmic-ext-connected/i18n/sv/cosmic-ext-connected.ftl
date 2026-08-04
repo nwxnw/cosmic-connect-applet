@@ -39,6 +39,7 @@ paired-offline = Parade (offline)
 visible-not-paired = Synlig men inte parade
 pairing-requested-by-device = Parkoppling begärd av enheten
 pairing-request-sent = Parningsförfrågan skickad...
+pairing-failed = Parningen misslyckades: { $error }
 
 # Enhetsåtgärder
 ping = Ping
@@ -91,8 +92,8 @@ device-type-tv = TV
 device-type-unknown = Enhet
 
 # Notification settings sub-page
-notification-duplicate-hint = Incoming SMS and calls can also trigger KDE Connect's own toasts, so you may see duplicates.
-learn-more = Learn more
+notification-duplicate-hint = Inkommande SMS och samtal kan också utlösa KDE Connects egna aviseringar, så du kan se dubbletter.
+learn-more = Läs mer
 
 # Inställningar för SMS-aviseringar
 settings-sms-notifications = SMS-aviseringar
