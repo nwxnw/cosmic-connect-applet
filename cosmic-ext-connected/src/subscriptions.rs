@@ -678,12 +678,16 @@ enum ConversationMessageState {
         /// detect the first-open truncation case (daemon's local store had only a
         /// single message when the Conversations worker ran) at phone_deadline expiry.
         received_message_count: usize,
-        /// Whether the one-shot Direction A retry has fired. Bounds retries to one.
+        /// Whether the one-shot truncation-recovery retry has fired. Bounds retries
+        /// to one across both triggers (`docs/SMS.md`, "first-open truncation").
         retry_attempted: bool,
     },
     /// Terminal state - subscription is complete
     Done,
 }
+
+/// Heartbeat interval after initial load completes (seconds).
+const MESSAGE_HEARTBEAT_SLEEP_SECS: u64 = 30;
 
 /// Create a stream that listens for conversation messages during loading.
 ///
@@ -694,14 +698,11 @@ enum ConversationMessageState {
 /// 4. Emitting `ConversationLoadComplete` when phone deadline fires (initial load done)
 /// 5. Continuing to listen for new messages until the conversation is closed
 ///
-/// The subscription runs as long as the conversation is open. It is cancelled by
+/// The subscription runs as long as the conversation is open. It is canceled by
 /// iced dropping it when `conversation_load_active` becomes false (CloseConversation).
 ///
 /// The request is fired from within the subscription to avoid race conditions
 /// where signals arrive before we're ready to receive them.
-///
-/// Heartbeat interval after initial load completes (seconds).
-const MESSAGE_HEARTBEAT_SLEEP_SECS: u64 = 30;
 pub fn conversation_message_subscription(
     thread_id: i64,
     device_id: String,
@@ -1050,14 +1051,15 @@ pub fn conversation_message_subscription(
 
                         // Check phone deadline (Phase 2 → Phase 3 transition).
                         //
-                        // Direction A retry: if the phone deadline expires after the
-                        // local store delivered at most one message, the daemon's
-                        // first-open Conversations worker likely finished before the
-                        // phone-supplied messages were written to the local store
-                        // (see docs/SMS.md, "first-open truncation"). Re-issue
-                        // requestConversation on the Conversations interface — by now
-                        // the local store contains the phone data — and let those
-                        // signals stream through normally. Bound to one attempt.
+                        // Fallback trigger (`docs/SMS.md`, "first-open truncation"):
+                        // if the phone deadline expires after the local store
+                        // delivered at most one message, the daemon's first-open
+                        // Conversations worker likely finished before the
+                        // phone-supplied messages were written to the local store.
+                        // Re-issue requestConversation on the Conversations
+                        // interface — by now the local store contains the phone
+                        // data — and let those signals stream through normally.
+                        // Bound to one attempt.
                         if !load_complete_emitted {
                             if let Some(pd) = phone_deadline {
                                 if now >= pd {
@@ -1240,7 +1242,7 @@ pub fn conversation_message_subscription(
                                                                 && received_message_count
                                                                     < messages_per_page as usize
                                                             {
-                                                                // Option 1 trigger: the daemon
+                                                                // Primary trigger: the daemon
                                                                 // re-emitted conversationLoaded
                                                                 // (its `addMessages()` told us the
                                                                 // local store grew) but we got
@@ -1323,7 +1325,6 @@ pub fn conversation_message_subscription(
                                                 }
                                             }
                                         }
-                                        // Non-matching signals: continue loop
                                     }
                                     Some(Err(e)) => {
                                         tracing::warn!("D-Bus conversation stream error: {}", e);

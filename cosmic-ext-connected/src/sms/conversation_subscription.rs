@@ -28,7 +28,7 @@ enum ConversationListState {
     Init {
         device_id: String,
     },
-    /// Emitting cached conversations one at a time before listening for signals
+    /// Emitting cached conversations before listening for signals
     EmittingCached {
         conn: Connection,
         conversations_proxy: ConversationsProxy<'static>,

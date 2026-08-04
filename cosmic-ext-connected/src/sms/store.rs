@@ -62,8 +62,8 @@ pub enum SmsViewMode {
 }
 
 /// In-flight older-page load. `Some` from firing the range request until the
-/// page settles; `None` otherwise. Replaces the OlderMessagesLoaded batch -
-/// completion is detected on the streaming path (see the two detectors below).
+/// page settles; `None` otherwise. Completion is detected on the streaming path
+/// (see the two detectors below).
 pub(crate) struct OlderPageLoad {
     /// Pre-thread pre-dedup served count. At `page_size` for a thread the daemon
     /// withheld `conversationLoaded`
@@ -78,6 +78,10 @@ pub(crate) struct OlderPageLoad {
     scroll_offset: f32,
     /// Content height captured before the request.
     content_height: f32,
+    /// Which detector settled each thread. Capture-log only. Recorded when it
+    /// happens because `served` keeps counting after a thread settles, so this
+    /// cannot be re-derived at finalize time.
+    settled_by: HashMap<i64, &'static str>,
 }
 pub struct SmsConversationStore {
     // Active SMS device
@@ -189,8 +193,8 @@ impl SmsConversationStore {
 
     /// Settle an in-flight older page: clear the spinner, refresh pagination
     /// counters, and preserve scroll position for the prepended content.
-    /// `page_satisfied` = full page served (has_more stays true); otherwise
-    /// `total_count` from `conversationLoaded` decides has_more (false at the top).
+    /// A thread that served a full page keeps `has_more`; `total_count`
+    /// from `conversationLoaded` decides otherwise.
     fn finalize_older_page(&mut self) -> cosmic::app::Task<Message> {
         let Some(load) = self.older_page.take() else {
             return cosmic::app::Task::none();
@@ -202,7 +206,7 @@ impl SmsConversationStore {
         // New messages this page actually added.
         let prepended = self.messages.len().saturating_sub(load.len_before);
 
-        // Storm-guard backstop (Step 3 protection, batch level): a batch that added
+        // Storm-guard backstop: a batch that added
         // nothing means every requested thread is exhausted or can only re-serve dupes.
         if prepended == 0 {
             for &t in &self.current_merged_thread_ids {
@@ -218,7 +222,8 @@ impl SmsConversationStore {
         // continued or stopped — the log is otherwise silent here, so a capture
         // cannot distinguish the full-page path from the conversationLoaded one.
         tracing::debug!(
-            "Older page settled: served={:?}, prepended={}, messages={}, has_more={}",
+            "Older page settled: detector={:?}, served={:?}, prepended={}, messages={}, has_more={}",
+            load.settled_by,
             load.served,
             prepended,
             self.messages.len(),
@@ -243,8 +248,20 @@ impl SmsConversationStore {
         cosmic::app::Task::none()
     }
 
+    /// Drop `thread_id` from the in-flight page, recording which detector settled
+    /// it. Returns `true` when it was the last pending thread, i.e. the caller
+    /// should finalize. `false` when no page is in flight
+    fn settle_thread(&mut self, thread_id: i64, detector: &'static str) -> bool {
+        let Some(load) = self.older_page.as_mut() else {
+            return false;
+        };
+        load.pending.remove(&thread_id);
+        load.settled_by.insert(thread_id, detector);
+        load.pending.is_empty()
+    }
+
     /// A thread that served a full page -> daemon withheld conversationLoaded -> it
-    ///  has more. Settle it and finalize the batch when the last pending thread clears
+    /// has more. Settle it and finalize the batch when the last pending thread clears.
     fn settle_full_page(&mut self, thread_id: i64) -> Option<cosmic::app::Task<Message>> {
         let full = self.older_page.as_ref().is_some_and(|l| {
             l.pending.contains(&thread_id)
@@ -254,12 +271,8 @@ impl SmsConversationStore {
             return None;
         }
         self.thread_has_more.insert(thread_id, true);
-        let empty = {
-            let l = self.older_page.as_mut().unwrap();
-            l.pending.remove(&thread_id);
-            l.pending.is_empty()
-        };
-        empty.then(|| self.finalize_older_page())
+        self.settle_thread(thread_id, "full-page")
+            .then(|| self.finalize_older_page())
     }
 
     /// Re-derive `conversations` from the raw cache. Honors
@@ -636,11 +649,7 @@ impl SmsConversationStore {
                         "Older-page request failed for thread {}, aborting page",
                         thread_id
                     );
-                    let empty = self.older_page.as_mut().map(|l| {
-                        l.pending.remove(&thread_id);
-                        l.pending.is_empty()
-                    });
-                    if empty == Some(true) {
+                    if self.settle_thread(thread_id, "fire-failed") {
                         return (self.finalize_older_page(), SmsReply::NoOp);
                     }
                     if matches!(self.sms_loading_state, SmsLoadingState::LoadingMoreMessages) {
@@ -691,6 +700,7 @@ impl SmsConversationStore {
                             len_before: self.messages.len(),
                             scroll_offset,
                             content_height,
+                            settled_by: HashMap::new(),
                         });
 
                         let tasks: Vec<_> = targets
@@ -804,7 +814,7 @@ impl SmsConversationStore {
                 }
                 let message_thread_id = message.thread_id;
                 // Count daemon-served messages toward an in-flight older page (pre-dedup, so
-                // it mirrors the daemon's numHandled. A full page means the daemon withheld
+                // it mirrors the daemon's numHandled). A full page means the daemon withheld
                 // conversationLoaded, so this is the only completion signal.
                 if let Some(load) = self.older_page.as_mut() {
                     *load.served.entry(message.thread_id).or_insert(0) += 1;
@@ -945,12 +955,7 @@ impl SmsConversationStore {
                         .count() as u64;
                     let has_more_t = total_count > 0 && loaded_t < total_count;
                     self.thread_has_more.insert(thread_id, has_more_t);
-                    let empty = {
-                        let l = self.older_page.as_mut().unwrap();
-                        l.pending.remove(&thread_id);
-                        l.pending.is_empty()
-                    };
-                    if empty {
+                    if self.settle_thread(thread_id, "conversation-loaded") {
                         return (self.finalize_older_page(), SmsReply::NoOp);
                     }
                     return (cosmic::app::Task::none(), SmsReply::NoOp);
@@ -1001,9 +1006,7 @@ impl SmsConversationStore {
             } => {
                 // Guard: accept completion signal from any thread in the open
                 // merged set. Each fanned-out subscription emits its own
-                // ConversationLoadComplete; step 3 will make the body
-                // idempotent so repeat arrivals don't redo work or break the
-                // messages_has_more math.
+                // ConversationLoadComplete
                 if !self.current_merged_thread_ids.contains(&thread_id) {
                     tracing::debug!(
                         "Ignoring load complete for thread {} (open merged set: {:?})",
