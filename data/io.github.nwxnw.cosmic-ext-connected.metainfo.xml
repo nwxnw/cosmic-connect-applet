@@ -11,6 +11,7 @@
 
   <summary>Phone connectivity applet for the COSMIC desktop</summary>
   <summary xml:lang="cs">Applet k propojení telefonu v prostředí COSMIC</summary>
+  <summary xml:lang="sv">Applet för telefonanslutning i skrivbordsmiljön COSMIC</summary>
 
   <description>
     <p>Connected is a panel applet for the COSMIC desktop environment that provides
