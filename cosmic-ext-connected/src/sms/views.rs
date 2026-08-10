@@ -600,7 +600,7 @@ pub fn view_message_thread(params: MessageThreadParams<'_>) -> Element<'_, Messa
     };
 
     // Compose row
-    let compose_input = widget::text_editor(params.sms_compose_text)
+    let compose_input = widget::text_editor::text_editor(params.sms_compose_text)
         .placeholder(fl!("type-message"))
         .on_action(Message::SmsComposeAction)
         .key_binding(|kp| compose_key_binding(kp, Message::SendSms))
@@ -787,7 +787,7 @@ pub fn view_new_message(params: NewMessageParams<'_>) -> Element<'_, Message> {
     };
 
     // Message input
-    let message_input = widget::text_editor(params.body)
+    let message_input = widget::text_editor::text_editor(params.body)
         .placeholder(fl!("type-message"))
         .on_action(Message::NewMessageBodyAction)
         .key_binding(|kp| compose_key_binding(kp, Message::SendNewMessage))
