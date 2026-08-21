@@ -37,8 +37,8 @@ tracing-journald = "0.3"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 
 # Internationalization
-i18n-embed = { version = "0.15", features = ["fluent-system", "desktop-requester"] }
-i18n-embed-fl = "0.9"
+i18n-embed = { version = "0.16", features = ["fluent-system", "desktop-requester"] }
+i18n-embed-fl = "0.10.1" # 0.10.0 still pulls proc-macro-error2 (E0365)
 rust-embed = "8"
 
 # Base64 decoding (MMS attachment thumbnails)
