@@ -1,6 +1,12 @@
 #!/bin/bash
 set -e
 
+# .cargo/config.toml is a transient build input: while it exists, every cargo command in this
+# repo resolves from vendor/ instead of crates.io (so `cargo update` fails). Drop it on exit --
+# registered before it's created so `set -e` can't leave it behind. vendor/ is inert without it.
+cleanup() { rm -f .cargo/config.toml; }
+trap cleanup EXIT
+
 # Get metadata from Cargo.toml (filter workspace for the applet crate)
 META=$(cargo metadata --no-deps --format-version 1 | jq '.packages[] | select(.name == "cosmic-ext-connected")')
 NAME=$(echo "$META" | jq -r '.name')
