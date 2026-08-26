@@ -15,12 +15,13 @@ use zbus::proxy;
 )]
 pub trait Clipboard {
     /// Send the current local clipboard content to the device.
+    ///
+    /// The one-argument `sendClipboard(content)` overload is deliberately
+    /// unbound: it changed `QString` → `QVariant` in kdeconnect `v25.08.0`, so
+    /// no single binding works on both older and newer daemons. Use
+    /// `ShareProxy::share_text` to send specific text.
     #[zbus(name = "sendClipboard")]
     fn send_clipboard(&self) -> zbus::Result<()>;
-
-    /// Send specific text content to the device's clipboard.
-    #[zbus(name = "sendClipboard")]
-    fn send_clipboard_content(&self, content: &str) -> zbus::Result<()>;
 
     /// Check if automatic clipboard sharing is disabled.
     /// Returns true if auto-share is off, or if password sharing is disabled.
