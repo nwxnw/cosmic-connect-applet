@@ -25,9 +25,9 @@ use crate::views::send_to::{view_send_to, view_share_text, SendToParams, ShareTe
 use crate::views::settings::{view_about, view_settings};
 use cosmic::app::Core;
 use cosmic::iced::core::window;
-use cosmic::iced::platform_specific::shell::wayland::commands::popup::{destroy_popup, get_popup};
 use cosmic::iced::widget::{column, scrollable};
 use cosmic::iced::{Alignment, Subscription};
+use cosmic::surface::action::{app_popup, destroy_popup};
 use cosmic::widget;
 use cosmic::{Application, Element};
 use kdeconnect_dbus::{
@@ -602,22 +602,28 @@ impl Application for ConnectApplet {
     fn update(&mut self, message: Self::Message) -> cosmic::app::Task<Self::Message> {
         match message {
             Message::TogglePopup => {
-                return if let Some(popup_id) = self.popup.take() {
+                let action = if let Some(popup_id) = self.popup.take() {
                     destroy_popup(popup_id)
                 } else {
-                    let new_id = window::Id::unique();
-                    self.popup.replace(new_id);
-
-                    let popup_settings = self.core.applet.get_popup_settings(
-                        self.core.main_window_id().unwrap(),
-                        new_id,
+                    app_popup::<ConnectApplet>(
+                        |_| Default::default(),
+                        |state: &mut ConnectApplet| {
+                            let new_id = window::Id::unique();
+                            state.popup = Some(new_id);
+                            state.core.applet.get_popup_settings(
+                                state.core.main_window_id().unwrap(),
+                                new_id,
+                                None,
+                                None,
+                                None,
+                            )
+                        },
                         None,
-                        None,
-                        None,
-                    );
-
-                    get_popup(popup_settings)
+                    )
                 };
+                return cosmic::task::message(cosmic::Action::Cosmic(
+                    cosmic::app::Action::Surface(action),
+                ));
             }
             Message::PopupClosed(id) => {
                 if self.popup == Some(id) {

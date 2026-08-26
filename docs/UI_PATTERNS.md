@@ -33,39 +33,62 @@ cosmic::app::Task::perform(
 
 ## Popup Windows
 
-Use standard COSMIC applet popup helpers:
+Popups **must** be created through `cosmic::surface::action`. That path registers the
+surface in libcosmic's internal `surface_views` map; the raw iced command
+(`iced::platform_specific::shell::wayland::commands::popup::get_popup`) creates a working
+popup that is never registered.
+
+An unregistered popup renders **with the frosted alpha but no compositor blur**. `Core::frosted()`
+takes no surface argument, so the alpha applies regardless; `Core::blur()` is handed the surface
+from the registry, and its untracked-applet branch returns false. The result composites the
+desktop at the correct opacity with wallpaper edges intact behind the panel text. It looks like a
+theming problem and is not one.
 
 ```rust
-use cosmic::iced::platform_specific::shell::wayland::commands::popup::{destroy_popup, get_popup};
+use cosmic::surface::action::{app_popup, destroy_popup};
 
 Message::TogglePopup => {
-    return if let Some(popup_id) = self.popup.take() {
-        destroy_popup(popup_id)
-    } else {
-        let new_id = window::Id::unique();
-        self.popup.replace(new_id);
+  let action = if let Some(popup_id) = self.popup.take() {
+      destroy_popup(popup_id)
+  } else {
+      app_popup::<ConnectApplet>(
+          |_| Default::default(),
+          |state: &mut ConnectApplet| {
+              let new_id = window::Id::unique();
+              state.popup = Some(new_id);
+              state.core.applet.get_popup_settings(
+                  state.core.main_window_id().unwrap(),
+                  new_id,
+                  None, None, None,
+              )
+          },
+          None,
+      )
+  };
 
-        let popup_settings = self.core.applet.get_popup_settings(
-            self.core.main_window_id().unwrap(),
-            new_id,
-            None, None, None,
-        );
-
-        get_popup(popup_settings)
-    };
+  return cosmic::task::message(cosmic::Action::Cosmic(
+      cosmic::app::Action::Surface(action),
+  ));
 }
 
 Message::PopupClosed(id) => {
-    if self.popup == Some(id) {
-        self.popup = None;
-    }
+  if self.popup == Some(id) {
+      self.popup = None;
+  }
 }
 ```
 
-**Important:** Use `destroy_popup()` and `get_popup()` helpers. Manual runtime actions cause issues where clicking the panel icon to close prevents reopening.
+The settings closure takes `&mut App`, so the popup id is recorded there rather than before the
+call. Passing `None` as the third argument means libcosmic renders through `view_window`.
 
-Note: newer libcosmic examples use `cosmic::surface::action::{app_popup, destroy_popup}`. This codebase still uses the older `platform_specific::shell::wayland::commands::popup` API intentionally; switching requires reworking the popup message flow.
+**Do not use manual runtime actions.** Clicking the panel icon to close then leaves the popup
+unable to reopen.
 
+**Anchor rectangle.** `get_popup_settings(…, None, None, None)` supplies an origin-anchored rect
+sized to the applet button, which is correct for a single-button applet. Passing the button's own
+bounds instead requires `.on_press_with_rectangle()` on the panel button and a `Message::Surface`
+variant that the view can emit — see `cosmic-ext-whether`. Only worth it if placement is actually
+wrong; it changes positioning, so re-test both panel orientations if adopted.
 ## View Lifetimes
 
 Use explicit lifetime annotations:
