@@ -58,7 +58,7 @@ impl Config {
                     tracing::error!(?err, "Failed to load config, using defaults");
                     Self::default()
                 });
-                tracing::info!("Loaded config: {:?}", config);
+                tracing::debug!("Loaded config: {:?}", config);
                 config
             }
             Err(err) => {
@@ -72,7 +72,7 @@ impl Config {
     pub fn save(&self) -> Result<(), cosmic_config::Error> {
         let config_handler = cosmic_config::Config::new(APP_ID, Self::VERSION)?;
         self.write_entry(&config_handler)?;
-        tracing::info!("Saved config: {:?}", self);
+        tracing::debug!("Saved config: {:?}", self);
         Ok(())
     }
 }

@@ -43,7 +43,7 @@ pub async fn send_sms_async(
 
     let empty_attachments: Vec<Value<'_>> = vec![];
 
-    tracing::info!(
+    tracing::debug!(
         "Sending SMS via replyToConversation for thread_id={}",
         thread_id
     );

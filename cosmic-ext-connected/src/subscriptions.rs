@@ -1289,7 +1289,7 @@ pub fn conversation_message_subscription(
                                                                         ),
                                                                 );
                                                             } else {
-                                                                tracing::info!(
+                                                                tracing::debug!(
                                                                     "Subscription: conversationLoaded for thread {}, \
                                                                      {} messages in store. Waiting up to {:?} for phone...",
                                                                     thread_id,

@@ -695,7 +695,7 @@ async fn request_conversation_bootstrap(
         }
     }
 
-    tracing::info!(
+    tracing::debug!(
         "Firing requestAllConversationThreads for device {}",
         device_id
     );

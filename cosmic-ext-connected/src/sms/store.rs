@@ -1093,8 +1093,7 @@ impl SmsConversationStore {
                 (cosmic::app::Task::none(), SmsReply::NoOp)
             }
             Message::SendSms => {
-                tracing::info!("SendSms triggered");
-                tracing::info!(
+                tracing::debug!(
                     "State: conn={}, device_id={:?}, thread_id={:?}, text_empty={}, sending={}",
                     ctx.conn.is_some(),
                     self.sms_device_id,
@@ -1159,7 +1158,7 @@ impl SmsConversationStore {
                 self.sms_sending = false;
                 match result {
                     Ok(sent_body) => {
-                        tracing::info!("SMS sent successfully");
+                        tracing::debug!("SMS sent successfully");
                         self.sms_compose_text = widget::text_editor::Content::new();
 
                         if let Some(thread_id) = self.current_thread_id {
