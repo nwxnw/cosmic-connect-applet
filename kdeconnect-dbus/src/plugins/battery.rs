@@ -7,7 +7,7 @@ use zbus::proxy;
 /// Proxy for the battery plugin D-Bus interface.
 #[proxy(
     interface = "org.kde.kdeconnect.device.battery",
-    default_service = "org.kde.kdeconnect.daemon"
+    default_service = "org.kde.kdeconnect"
 )]
 pub trait Battery {
     /// Get the current battery charge percentage (0-100).

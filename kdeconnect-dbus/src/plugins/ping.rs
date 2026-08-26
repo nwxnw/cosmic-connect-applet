@@ -7,7 +7,7 @@ use zbus::proxy;
 /// Proxy for the ping plugin D-Bus interface.
 #[proxy(
     interface = "org.kde.kdeconnect.device.ping",
-    default_service = "org.kde.kdeconnect.daemon"
+    default_service = "org.kde.kdeconnect"
 )]
 pub trait Ping {
     /// Send a ping to the device.

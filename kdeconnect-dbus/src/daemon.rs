@@ -11,7 +11,7 @@ use zbus::{proxy, Connection};
 /// announcing the local device, and managing the overall service.
 #[proxy(
     interface = "org.kde.kdeconnect.daemon",
-    default_service = "org.kde.kdeconnect.daemon",
+    default_service = "org.kde.kdeconnect",
     default_path = "/modules/kdeconnect"
 )]
 pub trait Daemon {

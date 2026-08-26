@@ -7,7 +7,7 @@ use zbus::proxy;
 /// Proxy for the share plugin D-Bus interface.
 #[proxy(
     interface = "org.kde.kdeconnect.device.share",
-    default_service = "org.kde.kdeconnect.daemon"
+    default_service = "org.kde.kdeconnect"
 )]
 pub trait Share {
     /// Share a URL (including file:// URLs) to the device.

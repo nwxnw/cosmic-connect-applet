@@ -41,7 +41,7 @@ use zbus::fdo::DBusProxy;
 let dbus_proxy = DBusProxy::new(&conn).await?;
 let rule = zbus::MatchRule::builder()
     .msg_type(zbus::message::Type::Signal)
-    .sender("org.kde.kdeconnect.daemon")
+    .sender("org.kde.kdeconnect")
     .map(|b| b.build())?;
 dbus_proxy.add_match_rule(rule).await?;
 
@@ -57,19 +57,19 @@ Without explicit match rules, D-Bus signals may not be delivered.
 ```bash
 # List paired devices
 dbus-send --session --print-reply \
-  --dest=org.kde.kdeconnect.daemon \
+  --dest=org.kde.kdeconnect \
   /modules/kdeconnect \
   org.kde.kdeconnect.daemon.devices
 
 # Introspect daemon interface
 dbus-send --session --print-reply \
-  --dest=org.kde.kdeconnect.daemon \
+  --dest=org.kde.kdeconnect \
   /modules/kdeconnect \
   org.freedesktop.DBus.Introspectable.Introspect
 
 # Ping a device
 dbus-send --session --print-reply \
-  --dest=org.kde.kdeconnect.daemon \
+  --dest=org.kde.kdeconnect \
   /modules/kdeconnect/devices/<device-id>/ping \
   org.kde.kdeconnect.device.ping.sendPing
 ```
@@ -79,21 +79,21 @@ dbus-send --session --print-reply \
 ```bash
 # Get device name
 dbus-send --session --print-reply \
-  --dest=org.kde.kdeconnect.daemon \
+  --dest=org.kde.kdeconnect \
   /modules/kdeconnect/devices/<device-id> \
   org.freedesktop.DBus.Properties.Get \
   string:org.kde.kdeconnect.device string:name
 
 # Check if device is reachable
 dbus-send --session --print-reply \
-  --dest=org.kde.kdeconnect.daemon \
+  --dest=org.kde.kdeconnect \
   /modules/kdeconnect/devices/<device-id> \
   org.freedesktop.DBus.Properties.Get \
   string:org.kde.kdeconnect.device string:isReachable
 
 # Request pairing
 dbus-send --session --print-reply \
-  --dest=org.kde.kdeconnect.daemon \
+  --dest=org.kde.kdeconnect \
   /modules/kdeconnect/devices/<device-id> \
   org.kde.kdeconnect.device.requestPairing
 ```
@@ -103,14 +103,14 @@ dbus-send --session --print-reply \
 ```bash
 # Get battery charge level
 dbus-send --session --print-reply \
-  --dest=org.kde.kdeconnect.daemon \
+  --dest=org.kde.kdeconnect \
   /modules/kdeconnect/devices/<device-id>/battery \
   org.freedesktop.DBus.Properties.Get \
   string:org.kde.kdeconnect.device.battery string:charge
 
 # Check if charging
 dbus-send --session --print-reply \
-  --dest=org.kde.kdeconnect.daemon \
+  --dest=org.kde.kdeconnect \
   /modules/kdeconnect/devices/<device-id>/battery \
   org.freedesktop.DBus.Properties.Get \
   string:org.kde.kdeconnect.device.battery string:isCharging
@@ -120,7 +120,7 @@ dbus-send --session --print-reply \
 
 ```bash
 # Watch all KDE Connect signals
-dbus-monitor --session "sender='org.kde.kdeconnect.daemon'"
+dbus-monitor --session "sender='org.kde.kdeconnect'"
 
 # Watch specific device signals
 dbus-monitor --session "path='/modules/kdeconnect/devices/<device-id>'"
@@ -130,14 +130,14 @@ dbus-monitor --session "path='/modules/kdeconnect/devices/<device-id>'"
 
 ```bash
 # List all KDE Connect objects
-busctl --user tree org.kde.kdeconnect.daemon
+busctl --user tree org.kde.kdeconnect
 
 # Introspect a device
-busctl --user introspect org.kde.kdeconnect.daemon \
+busctl --user introspect org.kde.kdeconnect \
   /modules/kdeconnect/devices/<device-id>
 
 # Call a method
-busctl --user call org.kde.kdeconnect.daemon \
+busctl --user call org.kde.kdeconnect \
   /modules/kdeconnect/devices/<device-id>/ping \
   org.kde.kdeconnect.device.ping sendPing
 ```
@@ -173,3 +173,31 @@ Upstream, `Device::isReachable()` is `!m_deviceLinks.isEmpty()` - a link *object
 ### A void method's `Ok` is not an acknowledgement
 
 `replyToConversation` and `sendSms` have **no out parameters** and cannot report delivery, and the daemon's send returns success as soon as the write buffers - which succeeds on a dead-but-ESTABLISHED socket. `Ok` means "the D-Bus call worked". The only evidence a message was delivered is the phone echoing it back.
+
+### The daemon's interface name is not its destination
+
+`kdeconnectd` owns two well-known names, and only one of them can be auto-started:
+
+| Name | Where it comes from | Activatable |
+  |---|---|---|
+| `org.kde.kdeconnect` | `/usr/share/dbus-1/services/org.kde.kdeconnect.service` | **Yes** |
+| `org.kde.kdeconnect.daemon` | runtime alias from KDBusService, derived from the daemon's `KAboutData` component name | No |
+
+`org.kde.kdeconnect.daemon` is **also the interface name** on `/modules/kdeconnect`, which is what makes the two easy to conflate. While the
+daemon is running both names reach the same object, so addressing the alias looks correct indefinitely. It diverges only when the daemon is
+**not** running: the bus starts it on demand for `org.kde.kdeconnect` and returns `org.freedesktop.DBus.Error.ServiceUnknown: The name is
+  not activatable` for the alias. Connected addressed the alias everywhere before v0.8.0 and so could never start the daemon on any distro -
+invisible on Pop!_OS only because `/etc/xdg/autostart/` starts it at session login.
+
+**Destinations** - `default_service`, `SERVICE_NAME`, the `sender=` match rule - use `org.kde.kdeconnect`. **Interfaces** keep
+`org.kde.kdeconnect.*` unchanged. In `kdeconnect-dbus/src/daemon.rs` the two sit on adjacent lines and once held the identical string, so
+never do this rename with a bare find-and-replace; `kdeconnect-dbus/src/lib.rs` carries a test asserting every proxy's
+`Defaults::DESTINATION` equals `SERVICE_NAME`.
+
+Unrelated despite the spelling: `~/.cache/kdeconnect.daemon/` is the daemon's Qt application name, not a bus name (`docs/SMS.md`).
+
+  ```bash
+  busctl --user call org.freedesktop.DBus /org/freedesktop/DBus \
+    org.freedesktop.DBus ListActivatableNames | tr ' ' '\n' | grep kdeconnect
+  # → "org.kde.kdeconnect" only, even with the daemon running
+

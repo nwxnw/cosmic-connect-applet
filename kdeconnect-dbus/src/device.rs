@@ -12,7 +12,7 @@ use zbus::{proxy, Connection};
 /// device information, and accessing plugins.
 #[proxy(
     interface = "org.kde.kdeconnect.device",
-    default_service = "org.kde.kdeconnect.daemon"
+    default_service = "org.kde.kdeconnect"
 )]
 pub trait Device {
     /// Get the device's human-readable name.

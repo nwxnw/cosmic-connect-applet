@@ -11,7 +11,7 @@ use zbus::proxy;
 /// the KDE Connect daemon - it updates the local clipboard when content arrives.
 #[proxy(
     interface = "org.kde.kdeconnect.device.clipboard",
-    default_service = "org.kde.kdeconnect.daemon"
+    default_service = "org.kde.kdeconnect"
 )]
 pub trait Clipboard {
     /// Send the current local clipboard content to the device.

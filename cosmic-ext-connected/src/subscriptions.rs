@@ -122,7 +122,7 @@ pub fn dbus_signal_subscription() -> impl futures_util::Stream<Item = Message> {
                 // Subscribe to all signals from KDE Connect daemon
                 if let Ok(rule) = zbus::MatchRule::builder()
                     .msg_type(zbus::message::Type::Signal)
-                    .sender("org.kde.kdeconnect.daemon")
+                    .sender("org.kde.kdeconnect")
                     .map(|b| b.build())
                 {
                     if let Err(e) = dbus_proxy.add_match_rule(rule).await {

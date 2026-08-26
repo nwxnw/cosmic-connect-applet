@@ -7,7 +7,7 @@ use zbus::proxy;
 /// Proxy for the findmyphone plugin D-Bus interface.
 #[proxy(
     interface = "org.kde.kdeconnect.device.findmyphone",
-    default_service = "org.kde.kdeconnect.daemon"
+    default_service = "org.kde.kdeconnect"
 )]
 pub trait FindMyPhone {
     /// Trigger the phone to ring.

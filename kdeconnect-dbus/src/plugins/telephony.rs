@@ -7,7 +7,7 @@ use zbus::proxy;
 /// Proxy for the telephony plugin D-Bus interface.
 #[proxy(
     interface = "org.kde.kdeconnect.device.telephony",
-    default_service = "org.kde.kdeconnect.daemon"
+    default_service = "org.kde.kdeconnect"
 )]
 pub trait Telephony {
     /// Signal emitted when a call is received or missed.

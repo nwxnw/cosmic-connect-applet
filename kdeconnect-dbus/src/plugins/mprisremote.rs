@@ -12,7 +12,7 @@ use zbus::proxy;
 /// `sendAction` method with the action name as a string parameter.
 #[proxy(
     interface = "org.kde.kdeconnect.device.mprisremote",
-    default_service = "org.kde.kdeconnect.daemon"
+    default_service = "org.kde.kdeconnect"
 )]
 pub trait MprisRemote {
     /// Get the list of available media players on the device.

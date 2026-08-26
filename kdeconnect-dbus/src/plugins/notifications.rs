@@ -9,7 +9,7 @@ use zbus::proxy;
 /// This interface manages the list of notifications from the device.
 #[proxy(
     interface = "org.kde.kdeconnect.device.notifications",
-    default_service = "org.kde.kdeconnect.daemon"
+    default_service = "org.kde.kdeconnect"
 )]
 pub trait Notifications {
     /// Get list of active notification IDs.
@@ -40,7 +40,7 @@ pub trait Notifications {
 /// Proxy for an individual notification D-Bus interface.
 #[proxy(
     interface = "org.kde.kdeconnect.device.notifications.notification",
-    default_service = "org.kde.kdeconnect.daemon"
+    default_service = "org.kde.kdeconnect"
 )]
 pub trait Notification {
     /// The internal notification ID.

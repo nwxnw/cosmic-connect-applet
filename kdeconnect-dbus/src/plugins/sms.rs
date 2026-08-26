@@ -8,7 +8,7 @@ use zbus::zvariant::{OwnedValue, Value};
 /// Proxy for the SMS plugin D-Bus interface.
 #[proxy(
     interface = "org.kde.kdeconnect.device.sms",
-    default_service = "org.kde.kdeconnect.daemon"
+    default_service = "org.kde.kdeconnect"
 )]
 pub trait Sms {
     /// Request the phone to send all conversation threads.
@@ -66,7 +66,7 @@ pub trait Sms {
 /// Note: This interface is on the device path, not /sms
 #[proxy(
     interface = "org.kde.kdeconnect.device.conversations",
-    default_service = "org.kde.kdeconnect.daemon"
+    default_service = "org.kde.kdeconnect"
 )]
 pub trait Conversations {
     /// Get all active conversations.
