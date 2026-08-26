@@ -4,8 +4,8 @@
 //! Reaction-bucket merging is implemented in [`merge_into_logical`], which
 //! collapses split threads (same canonical address-set + same subID) into
 //! a single `LogicalConversation` carrying multiple `merged_thread_ids`.
-//! See `Reaction Thread Splitting - Investigation and Fix Approach.md`
-//! for the design rationale and Phase 1B-validated heuristic.
+//! See `docs/SMS.md` "Reaction-Thread Merging" for the design rationale andn
+//! the Phase 1B-validated heuristic.
 
 use std::collections::{BTreeSet, HashMap, HashSet};
 

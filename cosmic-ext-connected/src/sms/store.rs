@@ -330,8 +330,7 @@ impl SmsConversationStore {
     ///   confirms the redirect is address-safe under subset shapes.
     /// - **Non-merged or unknown** → return the displayed thread ID.
     ///
-    /// See `Reaction Thread Splitting - Investigation and Fix Approach.md`
-    /// "Layer C-specific risks" for the full table.
+    /// See `docs/SMS.md` "Reply target rule" for the full table.
     pub(crate) fn reply_target(&self, displayed_thread_id: i64) -> i64 {
         self.logical_for(displayed_thread_id)
             .filter(|lc| lc.merged_thread_ids.len() > 1)
