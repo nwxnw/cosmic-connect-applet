@@ -101,7 +101,7 @@ pub fn dbus_signal_subscription() -> impl futures_util::Stream<Item = Message> {
                         tracing::error!("Failed to connect to D-Bus for signals: {}", e);
                         tokio::time::sleep(std::time::Duration::from_secs(RETRY_DELAY_SECS)).await;
                         return Some((
-                            Message::Error("D-Bus connection failed".to_string()),
+                            Message::SubscriptionRetrying("D-Bus connection failed".to_string()),
                             DbusSubscriptionState::Init,
                         ));
                     }
@@ -112,8 +112,9 @@ pub fn dbus_signal_subscription() -> impl futures_util::Stream<Item = Message> {
                     Ok(p) => p,
                     Err(e) => {
                         tracing::error!("Failed to create DBus proxy: {}", e);
+                        tokio::time::sleep(std::time::Duration::from_secs(RETRY_DELAY_SECS)).await;
                         return Some((
-                            Message::Error("D-Bus proxy failed".to_string()),
+                            Message::SubscriptionRetrying("D-Bus proxy failed".to_string()),
                             DbusSubscriptionState::Init,
                         ));
                     }
@@ -345,7 +346,9 @@ pub fn sms_notification_subscription() -> impl futures_util::Stream<Item = Messa
                         tracing::error!("Failed to connect to D-Bus for SMS signals: {}", e);
                         tokio::time::sleep(std::time::Duration::from_secs(RETRY_DELAY_SECS)).await;
                         return Some((
-                            Message::Error("D-Bus connection failed for SMS".to_string()),
+                            Message::SubscriptionRetrying(
+                                "D-Bus connection failed for SMS".to_string(),
+                            ),
                             SmsSubscriptionState::Init,
                         ));
                     }
@@ -356,8 +359,9 @@ pub fn sms_notification_subscription() -> impl futures_util::Stream<Item = Messa
                     Ok(p) => p,
                     Err(e) => {
                         tracing::error!("Failed to create DBus proxy for SMS: {}", e);
+                        tokio::time::sleep(std::time::Duration::from_secs(RETRY_DELAY_SECS)).await;
                         return Some((
-                            Message::Error("D-Bus proxy failed for SMS".to_string()),
+                            Message::SubscriptionRetrying("D-Bus proxy failed for SMS".to_string()),
                             SmsSubscriptionState::Init,
                         ));
                     }
@@ -501,7 +505,9 @@ pub fn call_notification_subscription() -> impl futures_util::Stream<Item = Mess
                         tracing::error!("Failed to connect to D-Bus for call signals: {}", e);
                         tokio::time::sleep(std::time::Duration::from_secs(RETRY_DELAY_SECS)).await;
                         return Some((
-                            Message::Error("D-Bus connection failed for calls".to_string()),
+                            Message::SubscriptionRetrying(
+                                "D-Bus connection failed for calls".to_string(),
+                            ),
                             CallSubscriptionState::Init,
                         ));
                     }
@@ -512,8 +518,11 @@ pub fn call_notification_subscription() -> impl futures_util::Stream<Item = Mess
                     Ok(p) => p,
                     Err(e) => {
                         tracing::error!("Failed to create DBus proxy for calls: {}", e);
+                        tokio::time::sleep(std::time::Duration::from_secs(RETRY_DELAY_SECS)).await;
                         return Some((
-                            Message::Error("D-Bus proxy failed for calls".to_string()),
+                            Message::SubscriptionRetrying(
+                                "D-Bus proxy failed for calls".to_string(),
+                            ),
                             CallSubscriptionState::Init,
                         ));
                     }

@@ -57,13 +57,10 @@ pub enum Message {
     DbusConnected(Arc<Mutex<Connection>>),
     /// D-Bus connection failed
     DbusConnectionFailed(String),
-    /// Error occurred
-    Error(String),
     /// The device fetch failed, so no device's reachability is currently known.
-    /// Distinct from `Error` because subscriptions also emit that for failures
-    /// which say nothing about device state. See D.30.
+    /// Distinct from `SubscriptionRetrying`, which subscriptions emit for their
+    /// own setup failures and which says nothing about device state.
     DeviceFetchFailed(String),
-
     // Navigation
     /// Select a device to view its detail page
     SelectDevice(String),
@@ -121,6 +118,11 @@ pub enum Message {
         device_id: String,
         error: String,
     },
+    /// A subscription failed to set up and is retrying from `Init`.
+    ///
+    /// Not a device-state error: the stream recovers on its own, so this must
+    /// never reach `self.error`, which pre-empts the entire popup view.
+    SubscriptionRetrying(String),
     /// Clear the transient status message after a delay
     ClearStatusMessage,
     /// D-Bus signal received indicating device state changed
@@ -764,10 +766,12 @@ impl Application for ConnectApplet {
                     }
                 }
             }
-            Message::Error(err) => {
-                tracing::error!("Error: {}", err);
-                self.error = Some(err);
-                self.loading = false;
+            Message::SubscriptionRetrying(what) => {
+                // The emitter already logged the underlying error; this arm
+                // exists because an unfold must yield a message to keep the
+                // stream alive. Deliberately no UI: a persistent daemon problem
+                // surfaces through DeviceFetchFailed, which is about device state.
+                tracing::debug!("Subscription retrying: {}", what);
             }
             Message::DeviceFetchFailed(err) => {
                 // We could not reach the daemon, so no device's reachability is
