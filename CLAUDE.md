@@ -40,13 +40,14 @@ Connected is a panel applet for the COSMIC™ desktop environment providing phon
 ```bash
 cargo build                              # Build all crates
 cargo build --release                    # Build release
-cargo run -p cosmic-ext-connected        # Run (requires COSMIC)
 cargo test && cargo clippy               # Test and lint
-just install                             # Install to system
+just install                             # Install (per-user, to ~/.local)
 just uninstall                           # Uninstall
 ```
 
-**Development cycle:** `cargo build --release && sudo just install && killall cosmic-panel`
+**Development cycle:** `cargo build --release && just install && killall cosmic-panel`
+
+**Applets cannot be run standalone.** `cargo run` floods with resize messages, because outside the panel the host container is the wrong size. Use the development cycle above and read the journal instead.
 
 **Flatpak build:**
 ```bash
