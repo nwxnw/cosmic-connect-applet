@@ -32,14 +32,14 @@ battery = Batteri
 battery-level = { $level }%
 charging = laddar
 
-pairing-request = Parningsförfrågan
-pairing = Parning...
+pairing-request = Parkopplingsförfrågan
+pairing = Parkopplar...
 connected-paired = Ansluten och parade
 paired-offline = Parade (offline)
 visible-not-paired = Synlig men inte parade
 pairing-requested-by-device = Parkoppling begärd av enheten
-pairing-request-sent = Parningsförfrågan skickad...
-pairing-failed = Parningen misslyckades: { $error }
+pairing-request-sent = Parkopplingsförfrågan skickad...
+pairing-failed = Parkopplingen misslyckades: { $error }
 
 # Enhetsåtgärder
 ping = Ping
@@ -65,15 +65,15 @@ ringing-phone = Ringer telefon...
 phone-ringing = Telefon ringer!
 find-phone-failed = Misslyckades att ringa telefon
 
-# Parning
+# Parkoppling
 pair = Para
 unpair = Koppla bort
 unpair-offline-note = Den här enheten är offline. Parkopplingen träder nu i kraft hos dig; den andra enheten avslutar parkopplingen nästa gång den ansluter.
 accept = Acceptera
 reject = Avvisa
 cancel = Avbryt
-pair-request-received = Parningsförfrågan mottagen från { $device }
-pair-request-sent = Parningsförfrågan skickad
+pair-request-received = Parkopplingsförfrågan mottagen från { $device }
+pair-request-sent = Parkopplingsförfrågan skickad
 device-wants-to-pair = Den här enheten vill para ihop med dig
 waiting-for-device = Väntar på att enhet ska acceptera...
 device-not-paired = Enheten är inte parad
@@ -175,8 +175,8 @@ clipboard-sent = Urklipp skickat!
 clipboard-failed = Misslyckades med att skicka urklipp
 sms-sent = Meddelande skickat!
 sms-failed = Misslyckades med att skicka meddelande
-pairing-accepted = Parning accepterad
-pairing-rejected = Parning avvisad
+pairing-accepted = Parkoppling accepterad
+pairing-rejected = Parkoppling avvisad
 unpaired = Avparad från enhet
 
 # Bilagor
