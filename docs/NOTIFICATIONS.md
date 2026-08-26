@@ -206,8 +206,7 @@ device-page list and badges survive) while suppressing only KDE Connect's toasts
 COSMIC does not expose per-application notification controls yet. User-facing
 guidance lives in the README under the stable anchor
 `#duplicate-notifications-with-kde-connect` (linked from the in-app Notifications
-page "Learn more"); the in-app hint is intentionally short. Pursuing the upstream
-control is tracked as a v0.7.0 candidate.
+page "Learn more"); the in-app hint is intentionally short.
 
 ## Unsupported: Incoming Ping Notifications
 
