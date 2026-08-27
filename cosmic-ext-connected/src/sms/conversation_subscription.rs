@@ -89,7 +89,7 @@ pub fn conversation_list_subscription(
                             Err(e) => {
                                 return Some((
                                     Message::SmsError(format!("D-Bus connection failed: {}", e)),
-                                    ConversationListState::Done, // NOT Init - see D.25
+                                    ConversationListState::Done,
                                 ));
                             }
                         };
@@ -100,7 +100,7 @@ pub fn conversation_list_subscription(
                         Err(e) => {
                             return Some((
                                 Message::SmsError(format!("D-Bus proxy failed: {}", e)),
-                                ConversationListState::Done, // NOT Init - see D.25
+                                ConversationListState::Done,
                             ));
                         }
                     };
@@ -172,7 +172,7 @@ pub fn conversation_list_subscription(
                                     "Failed to create conversations proxy: {}",
                                     e
                                 )),
-                                ConversationListState::Done, // NOT Init - see D.25
+                                ConversationListState::Done,
                             ));
                         }
                     };

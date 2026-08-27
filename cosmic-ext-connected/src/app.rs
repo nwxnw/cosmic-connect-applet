@@ -743,7 +743,7 @@ impl Application for ConnectApplet {
                     // view) against the fetch that just landed. A failed fetch leaves
                     // `self.devices` untouched, so a stale `true` can make a genuine
                     // reconnect read as `true -> true` and skip the bump entirely.
-                    // Log the pair so that comparison is observable, not inferred. See D.30.
+                    // Log the pair so that comparison is observable, not inferred.
                     tracing::debug!(
                         "SMS device {} reachability: was={} now={} (bump {})",
                         sms_id,
@@ -773,7 +773,7 @@ impl Application for ConnectApplet {
                             // bookkeeping OpenConversation does - otherwise the
                             // re-streamed page is deduped against stale uids and
                             // `messages` becomes the union of pre- and post-restart
-                            // data. Mirrors app.rs OpenConversation. See D.25.
+                            // data. Mirrors app.rs OpenConversation.
                             self.sms.messages_has_more = true;
                             self.sms.older_page = None;
                             self.sms.thread_has_more = self
@@ -1462,7 +1462,7 @@ impl Application for ConnectApplet {
 
                 // The conversation-list subscription is still live and already holds
                 // everything a refetch would find, so this is a re-assert rather than a
-                // repair: since D.25 (e045ed5) SmsError no longer clears view-lifecycle
+                // repair: since (e045ed5) SmsError no longer clears view-lifecycle
                 // flags, and only CloseSmsView does. Let the live subscription drive the list.
                 if self.sms.sms_device_id.is_some() {
                     self.sms.conversation_list_subscription_active = true;

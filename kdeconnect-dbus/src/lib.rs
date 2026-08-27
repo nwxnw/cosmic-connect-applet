@@ -80,7 +80,7 @@ mod tests {
         ]
     }
 
-    /// D.42 - every proxy must address the *activatable* name. Each attribute
+    /// Every proxy must address the *activatable* name. Each attribute
     /// hardcodes it because `zbus_macros` parses `default_service` as a string
     /// literal and will not take `SERVICE_NAME`, so this is the only thing
     /// binding the 13 to the const.
@@ -96,7 +96,7 @@ mod tests {
         }
     }
 
-    /// D.42 - `interface` and `default_service` sit on adjacent lines in every
+    /// `interface` and `default_service` sit on adjacent lines in every
     /// proxy attribute, and were the identical string in `daemon.rs` before the
     /// fix. An edit that lands on the wrong line is silent until a call fails.
     #[test]

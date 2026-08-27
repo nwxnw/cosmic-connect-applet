@@ -18,7 +18,7 @@ use zbus::Connection;
 /// end of its cache. A non-zero offset against a cache holding fewer messages
 /// segfaults kdeconnectd 23.08.5 and silently returns nothing on 26.04+. The
 /// applet cannot know the daemon's cache size - every count it holds is stale in
-/// exactly that scenario - so the offset is pinned rather than clamped. See D.29.
+/// exactly that scenario - so the offset is pinned rather than clamped.
 pub async fn request_older_messages_async(
     conn: Arc<Mutex<Connection>>,
     device_id: String,

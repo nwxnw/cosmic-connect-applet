@@ -57,7 +57,7 @@ where
 /// the contract this used to follow - segfaults kdeconnectd 23.08.5 whenever the
 /// daemon's cache holds fewer than `numKnown` messages, which is routine after a
 /// daemon restart. Serving from 0 returns the same messages newest-first and can
-/// never index past the end. See D.29.
+/// never index past the end.
 async fn fire_retry_request(
     conn: &Connection,
     device_id: &str,
@@ -742,7 +742,7 @@ pub fn conversation_message_subscription(
                                 Message::SmsError(
                                     "D-Bus connection failed for conversation".to_string(),
                                 ),
-                                ConversationMessageState::Done, // NOT Init - see D.25
+                                ConversationMessageState::Done,
                             ));
                         }
                     };
@@ -755,7 +755,7 @@ pub fn conversation_message_subscription(
                                 Message::SmsError(
                                     "D-Bus proxy failed for conversation".to_string(),
                                 ),
-                                ConversationMessageState::Done, // NOT Init - see D.25
+                                ConversationMessageState::Done,
                             ));
                         }
                     };
@@ -865,7 +865,7 @@ pub fn conversation_message_subscription(
                                     "Failed to create conversations proxy: {}",
                                     e
                                 )),
-                                ConversationMessageState::Done, //NOT init - See D.25
+                                ConversationMessageState::Done,
                             ));
                         }
                     };

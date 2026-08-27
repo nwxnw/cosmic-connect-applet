@@ -108,6 +108,5 @@ pub mod notifications {
     /// time — distinct mechanism from NORMAL_* above despite the equal number. ~30s ≈ the
     /// Android ring-to-voicemail window. NOT Timeout::Never: Connected has no active
     /// dismissal on call-end, so Never would leave a stale toast until manual dismiss.
-    /// (True persist-while-ringing + dismissal is v0.7.0 candidate D.3.)
     pub const CALL_RING_TIMEOUT_MS: u32 = 30_000;
 }
