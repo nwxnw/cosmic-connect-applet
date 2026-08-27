@@ -60,7 +60,7 @@ pub enum Message {
     /// The device fetch failed, so no device's reachability is currently known.
     /// Distinct from `SubscriptionRetrying`, which subscriptions emit for their
     /// own setup failures and which says nothing about device state.
-    DeviceFetchFailed(String),
+    DeviceFetchFailed(DaemonUnavailable),
     // Navigation
     /// Select a device to view its detail page
     SelectDevice(String),
@@ -337,6 +337,39 @@ pub enum SettingKey {
     MergeReactionThreads,
 }
 
+/// Why the daemon could not be reached. Derived from the D-Bus error *name*.
+/// Built by `device::fetch::classify`.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum DaemonUnavailable {
+    /// `UnknownObject`/`UnknownInterface`. The bus activated the name but the
+    /// daemon had not registered `/modules/kdeconnect`. Retried inside
+    /// `fetch_devices_async`; reaching the UI means it outlived the budget,
+    /// i.e. the daemon was launched and never finished coming up.
+    Starting,
+    /// `ServiceUnknown`. The bus has no activation service file for
+    /// `org.kde.kdeconnect`, i.e. KDE Connect is not installed.
+    NotInstalled,
+    /// `Spawn.*`. Service file present, the bus could not exec it.
+    FailedToStart,
+    /// `NoReply`/`Timeout`. The name is owned; we got no reply.
+    NotResponding,
+    /// Anything else, including non-`MethodError` zbus errors.
+    Other(String),
+}
+
+/// The latching error surface. While this is `Some`, `view_window` pre-empts
+/// every other branch - loading, the device list, and the empty-list card.
+///
+/// Written by exactly two arms, `DbusConnectionFailed` and `DeviceFetchFailed`;
+/// cleared by exactly two, `DbusConnected` and `DevicesUpdated`.
+#[derive(Debug, Clone)]
+pub enum ErrorState {
+    /// The session bus itself is unreachable; nothing about the daemon is known.
+    SessionBus(String),
+    /// The session bus is fine; the daemon could not be reached.
+    Daemon(DaemonUnavailable),
+}
+
 /// The device-list groups, in display order
 /// Only `Offline` is collapsible
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -444,7 +477,7 @@ pub struct ConnectApplet {
     config: Config,
     popup: Option<window::Id>,
     devices: Vec<DeviceInfo>,
-    error: Option<String>,
+    error: Option<ErrorState>,
     /// Last pairing failure, as (device_id, daemon error string). Owned by the
     /// pairing flow: set when daemon reports a failure, cleared only when the
     /// user starts another attempt or leaves the page. Deliberately NOT
@@ -641,7 +674,7 @@ impl Application for ConnectApplet {
             }
             Message::DbusConnectionFailed(err) => {
                 tracing::error!("D-Bus connection failed: {}", err);
-                self.error = Some(format!("Cannot connect to KDE Connect: {}", err));
+                self.error = Some(ErrorState::SessionBus(err));
                 self.loading = false;
             }
             Message::ForceReconnect => {
@@ -773,7 +806,7 @@ impl Application for ConnectApplet {
                 // surfaces through DeviceFetchFailed, which is about device state.
                 tracing::debug!("Subscription retrying: {}", what);
             }
-            Message::DeviceFetchFailed(err) => {
+            Message::DeviceFetchFailed(why) => {
                 // We could not reach the daemon, so no device's reachability is
                 // known. Leaving the last-known `true` in place makes the next
                 // successful fetch read as `true -> true`, and the recovery edge
@@ -781,12 +814,15 @@ impl Application for ConnectApplet {
                 // reconnects inside the refresh debounce, and the open thread
                 // stays frozen. Mark unreachable rather than clearing: names,
                 // battery and notifications survive, and the device list does
-                // not flash empty. See D.30.
-                tracing::warn!("Device fetch failed, marking devices unreachable: {}", err);
+                // not flash empty.
+                tracing::warn!(
+                    "Device fetch failed, marking devices unreachable: {:?}",
+                    why
+                );
                 for d in &mut self.devices {
                     d.is_reachable = false;
                 }
-                self.error = Some(err);
+                self.error = Some(ErrorState::Daemon(why));
                 self.loading = false;
             }
             Message::ClearStatusMessage => {
@@ -1826,16 +1862,37 @@ impl Application for ConnectApplet {
 
         // Handle error state first
         if let Some(err) = &self.error {
-            let content: Element<Message> = widget::container(
-                column![
-                    widget::text::heading(fl!("error")),
-                    widget::text::caption(err.clone()),
-                ]
+            // English inline for now so this commit carries no catalog churn.
+            // A later pass replaces these with three fl!() keys - Starting and
+            // FailedToStart share one - plus the cs/sv/pl translations.
+            let (heading, detail) = match err {
+                ErrorState::SessionBus(raw) => (
+                    "Cannot connect to KDE Connect".to_string(),
+                    Some(raw.clone()),
+                ),
+                ErrorState::Daemon(DaemonUnavailable::Starting)
+                | ErrorState::Daemon(DaemonUnavailable::FailedToStart) => {
+                    ("KDE Connect could not be started".to_string(), None)
+                }
+                ErrorState::Daemon(DaemonUnavailable::NotInstalled) => {
+                    ("KDE Connect was not found".to_string(), None)
+                }
+                ErrorState::Daemon(DaemonUnavailable::NotResponding) => {
+                    ("KDE Connect is not responding".to_string(), None)
+                }
+                ErrorState::Daemon(DaemonUnavailable::Other(raw)) => {
+                    (fl!("error"), Some(raw.clone()))
+                }
+            };
+
+            let mut col = column![widget::text::heading(heading)]
                 .spacing(sp.space_xxs)
-                .align_x(Alignment::Center),
-            )
-            .padding(sp.space_s)
-            .into();
+                .align_x(Alignment::Center);
+            if let Some(detail) = detail {
+                col = col.push(widget::text::caption(detail));
+            }
+
+            let content: Element<Message> = widget::container(col).padding(sp.space_s).into();
             return self.core.applet.popup_container(content).into();
         }
 

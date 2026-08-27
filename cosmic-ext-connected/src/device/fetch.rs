@@ -1,6 +1,7 @@
 //! Device fetching and information retrieval.
 
-use crate::app::{DeviceInfo, Message};
+use crate::app::{DaemonUnavailable, DeviceInfo, Message};
+use crate::constants::dbus::ACTIVATION_RETRY_DELAYS_MS;
 use kdeconnect_dbus::{
     plugins::{BatteryProxy, NotificationInfo, NotificationProxy, NotificationsProxy},
     DaemonProxy, DeviceProxy,
@@ -9,35 +10,91 @@ use std::sync::Arc;
 use tokio::sync::Mutex;
 use zbus::Connection;
 
+/// Classify a D-Bus failure by its error *name*.
+///
+/// A remote error arrives as `zbus::Error::MethodError(OwnedErrorName, _, _)`
+/// (`zbus/src/error.rs:40`). `zbus::fdo::Error` is the *server*-side type and
+/// never appears here.
+fn classify(e: &zbus::Error) -> DaemonUnavailable {
+    let zbus::Error::MethodError(name, _, _) = e else {
+        return DaemonUnavailable::Other(e.to_string());
+    };
+    match name.as_str() {
+        "org.freedesktop.DBus.Error.UnknownObject"
+        | "org.freedesktop.DBus.Error.UnknownInterface" => DaemonUnavailable::Starting,
+        "org.freedesktop.DBus.Error.ServiceUnknown" => DaemonUnavailable::NotInstalled,
+        "org.freedesktop.DBus.Error.NoReply"
+        | "org.freedesktop.DBus.Error.Timeout"
+        | "org.freedesktop.DBus.Error.TimedOut" => DaemonUnavailable::NotResponding,
+        // Spawn.ExecFailed, Spawn.ChildExited, Spawn.FileInvalid, ...
+        n if n.starts_with("org.freedesktop.DBus.Error.Spawn.") => DaemonUnavailable::FailedToStart,
+        _ => DaemonUnavailable::Other(e.to_string()),
+    }
+}
+
+/// One attempt at the daemon's device list.
+///
+/// The connection mutex is acquired *inside* this fn so the guard is dropped
+/// before the caller sleeps. Nineteen call sites share this
+/// `Arc<Mutex<Connection>>` - SMS send/fetch, media, every device action - and
+/// holding it across a backoff would stall all of them during a cold open,
+/// which is exactly when the user is most likely to click something.
+///
+/// `DaemonProxy::new` does no round trip: zbus builds proxies with
+/// `CacheProperties::Lazily` and `Daemon` declares no properties, so
+/// `devices()` is the only call here that can fail against the bus.
+async fn daemon_devices(conn: &Arc<Mutex<Connection>>) -> zbus::Result<Vec<String>> {
+    let guard = conn.lock().await;
+    DaemonProxy::new(&guard).await?.devices().await
+}
+
+/// Retry the daemon's device list across the activation window.
+///
+/// Returns `Err` on the first non-`Starting` classification. Those are permanent
+/// until something changes outside the applet, and retrying only delays the
+/// message the user is waiting for - `NoReply` in particular has already cost
+/// zbus's call timeout, so a second attempt doubles it.
+async fn fetch_device_ids(conn: &Arc<Mutex<Connection>>) -> Result<Vec<String>, DaemonUnavailable> {
+    for (attempt, &delay_ms) in ACTIVATION_RETRY_DELAYS_MS.iter().enumerate() {
+        if delay_ms > 0 {
+            tokio::time::sleep(std::time::Duration::from_millis(delay_ms)).await;
+        }
+        match daemon_devices(conn).await {
+            Ok(ids) => return Ok(ids),
+            Err(e) => match classify(&e) {
+                DaemonUnavailable::Starting => tracing::debug!(
+                    "Daemon still activating (attempt {}/{}): {}",
+                    attempt + 1,
+                    ACTIVATION_RETRY_DELAYS_MS.len(),
+                    e
+                ),
+                other => {
+                    tracing::warn!("Device fetch failed ({:?}), not retrying: {}", other, e);
+                    return Err(other);
+                }
+            },
+        }
+    }
+    // Every attempt saw `Starting`: the bus launched the daemon and it never
+    // registered `/modules/kdeconnect` inside the budget.
+    tracing::warn!("Daemon did not finish starting within the activation budget");
+    Err(DaemonUnavailable::Starting)
+}
+
 /// Fetch all devices from the KDE Connect daemon via D-Bus.
 pub async fn fetch_devices_async(conn: Arc<Mutex<Connection>>) -> Message {
-    let conn = conn.lock().await;
-
-    // Get the daemon proxy
-    let daemon = match DaemonProxy::new(&conn).await {
-        Ok(d) => d,
-        Err(e) => {
-            return Message::DeviceFetchFailed(format!(
-                "Failed to connect to KDE Connect daemon: {}",
-                e
-            ));
-        }
-    };
-
-    // Get list of all device IDs
-    let device_ids = match daemon.devices().await {
+    let device_ids = match fetch_device_ids(&conn).await {
         Ok(ids) => ids,
-        Err(e) => {
-            return Message::DeviceFetchFailed(format!("Failed to get device list: {}", e));
-        }
+        Err(why) => return Message::DeviceFetchFailed(why),
     };
 
     tracing::debug!("Found {} device(s)", device_ids.len());
 
-    // Fetch info for each device
+    // Re-acquire for the per-device pass; `fetch_device_info` takes the guard.
+    let guard = conn.lock().await;
     let mut devices = Vec::new();
     for device_id in device_ids {
-        match fetch_device_info(&conn, &device_id).await {
+        match fetch_device_info(&guard, &device_id).await {
             Ok(info) => devices.push(info),
             Err(e) => {
                 tracing::warn!("Failed to get info for device {}: {}", device_id, e);
@@ -253,4 +310,74 @@ pub async fn fetch_notifications(conn: &Connection, device_id: &str) -> Vec<Noti
     }
 
     notifications
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn method_error(name: &str) -> zbus::Error {
+        let reply_to = zbus::Message::method_call("/modules/kdeconnect", "devices")
+            .unwrap()
+            .build(&())
+            .unwrap();
+        zbus::Error::MethodError(
+            zbus::names::OwnedErrorName::try_from(name).unwrap(),
+            None,
+            reply_to,
+        )
+    }
+
+    #[test]
+    fn classify_maps_error_names_to_variants() {
+        for (name, want) in [
+            (
+                "org.freedesktop.DBus.Error.UnknownObject",
+                DaemonUnavailable::Starting,
+            ),
+            (
+                "org.freedesktop.DBus.Error.UnknownInterface",
+                DaemonUnavailable::Starting,
+            ),
+            (
+                "org.freedesktop.DBus.Error.ServiceUnknown",
+                DaemonUnavailable::NotInstalled,
+            ),
+            (
+                "org.freedesktop.DBus.Error.Spawn.ExecFailed",
+                DaemonUnavailable::FailedToStart,
+            ),
+            (
+                "org.freedesktop.DBus.Error.Spawn.ChildExited",
+                DaemonUnavailable::FailedToStart,
+            ),
+            (
+                "org.freedesktop.DBus.Error.NoReply",
+                DaemonUnavailable::NotResponding,
+            ),
+            (
+                "org.freedesktop.DBus.Error.Timeout",
+                DaemonUnavailable::NotResponding,
+            ),
+            (
+                "org.freedesktop.DBus.Error.TimedOut",
+                DaemonUnavailable::NotResponding,
+            ),
+        ] {
+            assert_eq!(classify(&method_error(name)), want, "{name}");
+        }
+    }
+
+    /// An unrecognised remote error and a non-`MethodError` both fall to `Other`.
+    #[test]
+    fn classify_falls_back_to_other() {
+        assert!(matches!(
+            classify(&method_error("org.kde.kdeconnect.Error.Whatever")),
+            DaemonUnavailable::Other(_)
+        ));
+        assert!(matches!(
+            classify(&zbus::Error::InvalidReply),
+            DaemonUnavailable::Other(_)
+        ));
+    }
 }

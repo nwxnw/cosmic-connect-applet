@@ -17,6 +17,16 @@ pub mod dbus {
     /// the pending flag has no natural wake-up. This tick polls the flag and
     /// flushes it once the debounce window has cleared.
     pub const PENDING_REFRESH_TICK_SECS: u64 = 1;
+    /// Backoff schedule for the daemon-activation race. Our proxies address the
+    /// activatable name `org.kde.kdeconnect`, so a call made while the daemon is
+    /// down starts it - but the bus calls activation done once the process owns
+    /// the name, before the daemon has exported `/modules/kdeconnect`. That first
+    /// call can come back `UnknownObject`/`UnknownInterface` on a healthy install.
+    ///
+    /// Recovery is sub-second, hence far tighter than `RETRY_DELAY_SECS`, which is
+    /// tuned for SMS page loads. First entry is 0: attempt once immediately. Worst
+    /// case before a genuine error reaches the UI is the sum, ~1.55s.
+    pub const ACTIVATION_RETRY_DELAYS_MS: &[u64] = &[0, 150, 400, 1000];
 }
 
 /// SMS conversation and message loading constants.
