@@ -19,8 +19,8 @@ journalctl --user SYSLOG_IDENTIFIER=cosmic-ext-connected _PID=<pid>      # one p
 The default filter directive depends on build profile: `cosmic_ext_connected=debug` for debug builds (`cargo run`, `cargo build`) and `cosmic_ext_connected=warn` for release builds (`cargo build --release`, installed `.deb`/`.flatpak`). Other crates default to ERROR-level (so libcosmic warnings and errors still surface). Setting `RUST_LOG` overrides the default entirely:
 
 ```bash
-RUST_LOG=cosmic_ext_connected=info cargo run -p cosmic-ext-connected
-RUST_LOG=cosmic_ext_connected=trace,zbus=debug cargo run -p cosmic-ext-connected
+RUST_LOG=cosmic_ext_connected=info               # one crate, raised
+RUST_LOG=cosmic_ext_connected=trace,zbus=debug   # plus a dependency
 ```
 
 The release default of `warn` keeps installed-build journald output to actionable problems only; raise it ad-hoc via `RUST_LOG` when debugging a deployed installation — but see the next section for how, because exporting it in a shell does **not** work for a panel-launched applet.
@@ -29,18 +29,9 @@ The release default of `warn` keeps installed-build journald output to actionabl
 
 **A panel-hosted applet does not inherit your shell environment.** cosmic-panel is spawned by `cosmic-session` at login, and it spawns the applet; your interactive shell is nowhere in that chain. Exporting `RUST_LOG` before running `journalctl` sets it for `journalctl`, which has no use for it — the applet keeps the compiled-in `warn` default and any `info`/`debug` events you were hoping for never exist. Verify with `tr '\0' '\n' < /proc/$(pgrep -f 'bin/cosmic-ext-connected' | head -1)/environ | grep RUST_LOG`.
 
-Three ways out, cheapest first:
+**Running it outside the panel is not an option.** `cargo run` starts, but outside the panel the host container is the wrong size and the applet floods with resize messages, drowning anything you were trying to read. The applet must be hosted; raise the level in place instead. Two ways, cheapest first:
 
-**Run it outside the panel — usually the right answer.** `cargo run` builds a normal window (every `COSMIC_PANEL_*` variable has a default), events print straight to your terminal *and* still reach journald, and only one instance runs instead of one per panel/dock surface:
-
-```bash
-RUST_LOG=cosmic_ext_connected=debug cargo run --release -p cosmic-ext-connected
-```
-
-Use `--release` so timing-sensitive behaviour stays representative; `RUST_LOG` overrides the profile default either way.
-
-**Wrap the installed `Exec`** if you need it hosted by the panel. Edit `~/.local/share/applications/io.github.nwxnw.cosmic-ext-connected.desktop`:
-
+**Wrap the installed `Exec`.** Edit `~/.local/share/applications/io.github.nwxnw.cosmic-ext-connected.desktop`:
 ```
 Exec=env RUST_LOG=cosmic_ext_connected=debug /home/<user>/.local/bin/cosmic-ext-connected
 ```
