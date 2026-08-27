@@ -51,6 +51,9 @@ pub enum Message {
     RefreshDevices,
     /// Prod the daemon to re-scan the network, then refresh (manual Refresh button)
     ForceReconnect,
+    /// Retry reaching KDE Connect from an error empty-list card. Re-establishes
+    /// the session bus if we never had one, otherwsie re-fetches the device list.
+    RetryConnection,
     /// Device list was updated
     DevicesUpdated(Vec<DeviceInfo>),
     /// D-Bus connection established
@@ -538,6 +541,17 @@ pub struct ConnectApplet {
 }
 
 impl ConnectApplet {
+    /// The session-bus connect, shared by start and the retry affordance so
+    /// both map success and failure onto the same two messages.
+    fn connect_dbus_task() -> cosmic::app::Task<Message> {
+        cosmic::app::Task::perform(async { Connection::session().await }, |result| {
+            cosmic::Action::App(match result {
+                Ok(conn) => Message::DbusConnected(Arc::new(Mutex::new(conn))),
+                Err(e) => Message::DbusConnectionFailed(e.to_string()),
+            })
+        })
+    }
+
     /// Set a transient status message that auto-clears after 3 seconds.
     fn set_transient_status(&mut self, msg: String) -> cosmic::app::Task<Message> {
         self.status_message = Some(msg);
@@ -620,13 +634,7 @@ impl Application for ConnectApplet {
         };
 
         // Connect to D-Bus on startup
-        let task = cosmic::app::Task::perform(async { Connection::session().await }, |result| {
-            cosmic::Action::App(match result {
-                Ok(conn) => Message::DbusConnected(Arc::new(Mutex::new(conn))),
-                Err(e) => Message::DbusConnectionFailed(e.to_string()),
-            })
-        });
-
+        let task = Self::connect_dbus_task();
         (app, task)
     }
 
@@ -687,6 +695,19 @@ impl Application for ConnectApplet {
                         cosmic::Action::App,
                     );
                 }
+            }
+            Message::RetryConnection => {
+                self.loading = true;
+                // Deliberately does NOT clear self.error -- that stays with
+                // DbusConnected and DeviceUpdated, so the card only goes away
+                // once something has actually succeeded
+                return match &self.dbus_connection {
+                    Some(conn) => cosmic::app::Task::perform(
+                        fetch_devices_async(conn.clone()),
+                        cosmic::Action::App,
+                    ),
+                    None => Self::connect_dbus_task(),
+                };
             }
             Message::RefreshDevices => {
                 if let Some(conn) = &self.dbus_connection {
@@ -1891,7 +1912,16 @@ impl Application for ConnectApplet {
             if let Some(detail) = detail {
                 col = col.push(widget::text::caption(detail));
             }
-
+            let retry: Element<Message> = if self.loading {
+                widget::button::standard(fl!("retry"))
+                    .leading_icon(widget::icon::from_name("process-working-symbolic").size(16))
+                    .into()
+            } else {
+                widget::button::standard(fl!("retry"))
+                    .on_press(Message::RetryConnection)
+                    .into()
+            };
+            col = col.push(retry);
             let content: Element<Message> = widget::container(col).padding(sp.space_s).into();
             return self.core.applet.popup_container(content).into();
         }
@@ -1976,6 +2006,8 @@ impl Application for ConnectApplet {
                             widget::text::caption(fl!("no-devices-hint")),
                             widget::button::icon(widget::icon::from_name("notification-symbolic"))
                                 .on_press(Message::ToggleSettings),
+                            widget::button::standard(fl!("retry"))
+                                .on_press(Message::RetryConnection),
                         ]
                         .spacing(sp.space_xxs)
                         .align_x(Alignment::Center),
