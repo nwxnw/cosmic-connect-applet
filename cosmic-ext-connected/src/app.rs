@@ -1883,23 +1883,17 @@ impl Application for ConnectApplet {
 
         // Handle error state first
         if let Some(err) = &self.error {
-            // English inline for now so this commit carries no catalog churn.
-            // A later pass replaces these with three fl!() keys - Starting and
-            // FailedToStart share one - plus the cs/sv/pl translations.
             let (heading, detail) = match err {
-                ErrorState::SessionBus(raw) => (
-                    "Cannot connect to KDE Connect".to_string(),
-                    Some(raw.clone()),
-                ),
+                ErrorState::SessionBus(raw) => (fl!("daemon-unreachable"), Some(raw.clone())),
                 ErrorState::Daemon(DaemonUnavailable::Starting)
                 | ErrorState::Daemon(DaemonUnavailable::FailedToStart) => {
-                    ("KDE Connect could not be started".to_string(), None)
+                    (fl!("daemon-not-started"), None)
                 }
                 ErrorState::Daemon(DaemonUnavailable::NotInstalled) => {
-                    ("KDE Connect was not found".to_string(), None)
+                    (fl!("daemon-not-found"), None)
                 }
                 ErrorState::Daemon(DaemonUnavailable::NotResponding) => {
-                    ("KDE Connect is not responding".to_string(), None)
+                    (fl!("daemon-not-responding"), None)
                 }
                 ErrorState::Daemon(DaemonUnavailable::Other(raw)) => {
                     (fl!("error"), Some(raw.clone()))

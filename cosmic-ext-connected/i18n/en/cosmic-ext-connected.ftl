@@ -178,6 +178,12 @@ pairing-accepted = Pairing accepted
 pairing-rejected = Pairing rejected
 unpaired = Unpaired from device
 
+# Daemon errors
+daemon-unreachable = Cannot connect to KDE Connect
+daemon-not-started = KDE Connect could not be started
+daemon-not-found = KDE Connect was not found
+daemon-not-responding = KDE Connect is not responding
+
 # Attachments
 attachment = Attachment
 loading-attachment = Loading attachment...

@@ -178,6 +178,13 @@ pairing-accepted = Párování přijato
 pairing-rejected = Párování odmítnuto
 unpaired = Párování se zařízením zrušeno
 
+# TODO English stubs, translation required
+# Daemon errors
+daemon-unreachable = Cannot connect to KDE Connect
+daemon-not-started = KDE Connect could not be started
+daemon-not-found = KDE Connect was not found
+daemon-not-responding = KDE Connect is not responding
+
 # Attachments
 attachment = Příloha
 loading-attachment = Načítání přílohy...
