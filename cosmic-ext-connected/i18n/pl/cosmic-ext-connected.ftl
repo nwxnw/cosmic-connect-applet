@@ -15,10 +15,8 @@ retry = Ponów
 
 # Device list
 no-devices = Brak urządzeń
-no-devices-hint = Upewnij się że daemon KDE Connect jest uruchomiony
-no-devices-hint-extended = i urządzenia są wykrywalne.
+no-devices-hint = Upewnij się, że urządzenia są wykrywalne.
 loading-devices = Ładowanie urządzeń...
-no-devices-found = Nie znaleziono urządzeń
 
 # Device status
 paired = Sparowane

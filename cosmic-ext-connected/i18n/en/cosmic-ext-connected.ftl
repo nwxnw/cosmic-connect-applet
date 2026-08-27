@@ -15,10 +15,8 @@ retry = Retry
 
 # Device list
 no-devices = No devices
-no-devices-hint = Make sure KDE Connect daemon is running
-no-devices-hint-extended = and devices are discoverable.
+no-devices-hint = Make sure your devices are discoverable
 loading-devices = Loading devices...
-no-devices-found = No devices found
 
 # Device status
 paired = Paired

@@ -15,10 +15,8 @@ retry = Försök igen
 
 # Enhetslista
 no-devices = Inga enheter
-no-devices-hint = Se till att KDE Connect-daemonen körs
-no-devices-hint-extended = och enheter är upptäckbara.
+no-devices-hint = Se till att enheter är upptäckbara.
 loading-devices = Laddar enheter...
-no-devices-found = Inga enheter hittades
 
 # Enhetsstatus
 paired = Parade

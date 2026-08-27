@@ -15,10 +15,8 @@ retry = Zkusit znovu
 
 # Device list
 no-devices = Žádná zařízení
-no-devices-hint = Ujistěte se, že je spuštěna služba KDE Connect
-no-devices-hint-extended = a zařízení jsou viditelná.
+no-devices-hint = Ujistěte se, že jsou zařízení viditelná.
 loading-devices = Načítání zařízení...
-no-devices-found = Nebyla nalezena žádná zařízení
 
 # Device status
 paired = Spárováno
