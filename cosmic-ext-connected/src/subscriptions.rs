@@ -14,12 +14,11 @@ use kdeconnect_dbus::plugins::{parse_sms_message, MessageType};
 use kdeconnect_dbus::DeviceProxy;
 use zbus::Connection;
 
-/// Retry a fallible D-Bus construction step `MAX_MESSAGE_LOAD_RETRIES` times with
-/// `RETRY_DELAY_SECS` between attempts. Generalises D.17's inline loop
-/// (`request_conversation`, below) to the construction steps it does not reach.
+/// Retry a fallible D-Bus construction step `MAX_MESSAGE_LOAD_RETRIES` times,
+/// `RETRY_DELAY_SECS` apart. Connection only: proxy construction does not round
+/// tip, so wrapping it just repeats local validation errors for ten seconds.
 ///
-/// The caller terminates with `Done` on `Err` - it must NOT re-enter `Init`, or the
-/// no-sleep failure paths become a hot loop (see D.25 ownership rule).
+/// DOn `Err` the caller must terminate with `Done`; re-entering `Init` hot-loops.
 pub(crate) async fn with_dbus_retries<T, E, F, Fut>(label: &str, mut op: F) -> Result<T, E>
 where
     F: FnMut() -> Fut,
@@ -748,28 +747,18 @@ pub fn conversation_message_subscription(
                         }
                     };
 
-                    // `conn_ref` is `Copy`, so the retry closures below can hand a fresh,
-                    // independent future to each attempt without moving `conn` out of their
-                    // environment (which would make them `FnOnce`, not `FnMut`).
-                    let conn_ref = &conn;
-
                     // Add match rule for conversationUpdated signals
-                    let dbus_proxy =
-                        match with_dbus_retries("thread D-Bus proxy build", move || {
-                            zbus::fdo::DBusProxy::new(conn_ref)
-                        })
-                        .await
-                        {
-                            Ok(p) => p,
-                            Err(_) => {
-                                return Some((
-                                    Message::SmsError(
-                                        "D-Bus proxy failed for conversation".to_string(),
-                                    ),
-                                    ConversationMessageState::Done, // NOT Init - see D.25
-                                ));
-                            }
-                        };
+                    let dbus_proxy = match zbus::fdo::DBusProxy::new(&conn).await {
+                        Ok(p) => p,
+                        Err(_) => {
+                            return Some((
+                                Message::SmsError(
+                                    "D-Bus proxy failed for conversation".to_string(),
+                                ),
+                                ConversationMessageState::Done, // NOT Init - see D.25
+                            ));
+                        }
+                    };
 
                     // Subscribe to conversationUpdated signals (individual messages)
                     let updated_rule = zbus::MatchRule::builder()
@@ -861,16 +850,12 @@ pub fn conversation_message_subscription(
                     }
 
                     // Fire Conversations interface request (provides per-message signals)
-                    let device_path_str = device_path.as_str();
-                    let conversations_proxy = match with_dbus_retries(
-                        "thread conversations proxy build",
-                        move || async move {
-                            kdeconnect_dbus::plugins::ConversationsProxy::builder(conn_ref)
-                                .path(device_path_str)?
-                                .build()
-                                .await
-                        },
-                    )
+                    let conversations_proxy = match async {
+                        kdeconnect_dbus::plugins::ConversationsProxy::builder(&conn)
+                            .path(device_path.as_str())?
+                            .build()
+                            .await
+                    }
                     .await
                     {
                         Ok(p) => p,

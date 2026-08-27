@@ -94,17 +94,8 @@ pub fn conversation_list_subscription(
                             }
                         };
 
-                    // `conn_ref` is `Copy`, so the retry closure below can hand a fresh,
-                    // independent future to each attempt without moving `conn` out of its
-                    // environment (which would make it `FnOnce`, not `FnMut`).
-                    let conn_ref = &conn;
-
                     // Add match rules for conversation signals
-                    let dbus_proxy = match with_dbus_retries("list D-Bus proxy build", move || {
-                        zbus::fdo::DBusProxy::new(conn_ref)
-                    })
-                    .await
-                    {
+                    let dbus_proxy = match zbus::fdo::DBusProxy::new(&conn).await {
                         Ok(p) => p,
                         Err(e) => {
                             return Some((
@@ -165,37 +156,26 @@ pub fn conversation_list_subscription(
                     // Build conversations proxy for the device
                     let device_path =
                         format!("{}/devices/{}", kdeconnect_dbus::BASE_PATH, device_id);
-
-                    let conversations_proxy =
-                        match with_dbus_retries("list conversations proxy build", || {
-                            // `Proxy::new_owned` consumes its arguments, so clone per attempt
-                            // rather than moving the captures out of the closure.
-                            let conn = conn.clone();
-                            let device_path = device_path.clone();
-                            async move {
-                                Proxy::new_owned(
-                                    conn,
-                                    kdeconnect_dbus::SERVICE_NAME,
-                                    device_path,
-                                    "org.kde.kdeconnect.device.conversations",
-                                )
-                                .await
-                                .map(ConversationsProxy::from)
-                            }
-                        })
-                        .await
-                        {
-                            Ok(p) => p,
-                            Err(e) => {
-                                return Some((
-                                    Message::SmsError(format!(
-                                        "Failed to create conversations proxy: {}",
-                                        e
-                                    )),
-                                    ConversationListState::Done, // NOT Init - see D.25
-                                ));
-                            }
-                        };
+                    let conversations_proxy = match Proxy::new_owned(
+                        conn.clone(),
+                        kdeconnect_dbus::SERVICE_NAME,
+                        device_path,
+                        "org.kde.kdeconnect.device.conversations",
+                    )
+                    .await
+                    .map(ConversationsProxy::from)
+                    {
+                        Ok(p) => p,
+                        Err(e) => {
+                            return Some((
+                                Message::SmsError(format!(
+                                    "Failed to create conversations proxy: {}",
+                                    e
+                                )),
+                                ConversationListState::Done, // NOT Init - see D.25
+                            ));
+                        }
+                    };
 
                     // Get cached conversations first (for immediate display)
                     let mut initial_conversations =
