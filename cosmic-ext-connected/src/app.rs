@@ -1885,8 +1885,8 @@ impl Application for ConnectApplet {
         if let Some(err) = &self.error {
             let (heading, detail) = match err {
                 ErrorState::SessionBus(raw) => (fl!("daemon-unreachable"), Some(raw.clone())),
-                ErrorState::Daemon(DaemonUnavailable::Starting)
-                | ErrorState::Daemon(DaemonUnavailable::FailedToStart) => {
+                ErrorState::Daemon(DaemonUnavailable::Starting) => (fl!("daemon-starting"), None),
+                ErrorState::Daemon(DaemonUnavailable::FailedToStart) => {
                     (fl!("daemon-not-started"), None)
                 }
                 ErrorState::Daemon(DaemonUnavailable::NotInstalled) => {

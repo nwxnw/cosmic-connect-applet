@@ -178,6 +178,7 @@ unpaired = Unpaired from device
 
 # Daemon errors
 daemon-unreachable = Cannot connect to KDE Connect
+daemon-starting = KDE Connect is starting...
 daemon-not-started = KDE Connect could not be started
 daemon-not-found = KDE Connect was not found
 daemon-not-responding = KDE Connect is not responding
