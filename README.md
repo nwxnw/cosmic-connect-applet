@@ -41,7 +41,7 @@ Connected requires KDE Connect on both your desktop and Android phone.
 sudo apt install kdeconnect
 
 # Fedora
-sudo dnf install kdeconnect
+sudo dnf install kde-connect
 
 # Arch
 sudo pacman -S kdeconnect
@@ -51,56 +51,30 @@ sudo pacman -S kdeconnect
 
 ## Installation
 
-Install Connected from the Applets section of the COSMIC Store.
+Connected is available in the COSMIC Store in the Applets category. Installing from the Store provides automatic updates.
 
-Alternatively, you can download the latest release from the [Releases](https://github.com/nwxnw/cosmic-ext-connected/releases) page and use the following instructions.
+To remove it, use the Store, or run `flatpak --user uninstall io.github.nwxnw.cosmic-ext-connected`
 
-### Flatpak
+### Manual Download
 
-Install:
-```sh
-flatpak install --user ./cosmic-ext-connected_*.flatpak
-```
+Download the latest `.deb` or `.flatpak` release from the [Releases](https://github.com/nwxnw/cosmic-ext-connected/releases) page.
 
-Uninstall:
-```sh
-flatpak uninstall --user io.github.nwxnw.cosmic-ext-connected
-```
+**Flatpak bundle**
 
-### Debian/Ubuntu (.deb)
+- Install: `flatpak install --user ./cosmic-ext-connected_*.flatpak`
+- Uninstall: `flatpak uninstall --user io.github.nwxnw.cosmic-ext-connected`
 
-Install:
-```sh
-sudo apt install ./cosmic-ext-connected_*_amd64.deb
-```
+**Debian/Ubuntu (.deb)**
 
-Uninstall:
-```sh
-sudo apt remove cosmic-ext-connected
-```
+- Install: `sudo apt install ./cosmic-ext-connected_*_amd64.deb`
+- Uninstall: `sudo apt remove cosmic-ext-connected`
 
 ### From source
 
-Requires Rust, [just](https://github.com/casey/just), and system dependencies:
+Requires Rust, [just](https://github.com/casey/just), and the `pkg-config`, `libxkbcommon-dev`, `wayland-protocols`, and `libwayland-dev` system dependencies.
 
-```sh
-sudo apt install -y build-essential cmake pkgconf \
-  libxkbcommon-dev libwayland-dev libglvnd-dev \
-  libexpat1-dev libfontconfig-dev libfreetype-dev \
-  libinput-dev libdbus-1-dev libssl-dev
-```
-
-```sh
-just build-release
-just install
-```
-
-Then add **Connected** to your COSMIC panel via Settings > Desktop > Panel > Applets.
-
-Uninstall:
-```sh
-just uninstall
-```
+- Install: `just build-release && just install`
+- Uninstall: `just uninstall`
 
 If you previously installed via `sudo just install`, run `sudo just uninstall-system` once to clear the old system copy.
 
@@ -121,8 +95,31 @@ Notification settings live on the **Notifications** page, opened from the notifi
 
 App and version information is on the **About** page, reached from the identity line at the bottom of the device list.
 
+## Troubleshooting
+
+### No devices appear
+
+Work down this list:
+
+1. **KDE Connect is running on your phone**, and phone and desktop are on the same network.
+2. **The firewall allows ports 1714-1764**, TCP and UDP. Fedora's `FedoraWorkstation` zone opens them, but **the COSMIC spin defaults to the `public` zone, which does not** - installing KDE Connect does not change the firewall, so the daemon runs and no phone is ever found.
+   ```sh
+   firewall-cmd --get-active-zones                         # which zone am I in?
+   sudo firewall-cmd --permanent --add-service=kdeconnect  # note: no hyphen
+   sudo firewall-cmd --reload
+   ```
+   firewalld ships the `kdeconnect` service definition itself, covering 1714-1764 on TCP and UDP.
+
+### "KDE Connect was not found"
+
+The D-Bus service that starts the daemon is not installed. Install KDE Connect and reopen the applet; if the card is still showing, press **Retry**.
+
+### "KDE Connect could not be started"
+
+The service file exists but the daemon failed to launch. Check `journalctl --user -b | grep -i kdeconnect`, and confirm the path in `/usr/share/dbus-1/services/org.kde.kdeconnect.service` matches the installed binary - `/usr/bin/kdeconnectd` on Fedora and Arch, `/usr/lib/x86_64-linux-gnu/libexec/kdeconnectd` on Debian and Ubuntu.
+
 <!-- Anchor #duplicate-notifications-with-kde-connect is linked from the in-app Notifications page ("Learn more"). Do not rename this heading. -->
-## Duplicate notifications with KDE Connect
+### Duplicate notifications with KDE Connect
 
 Connected raises its own desktop notifications for incoming SMS and calls. KDE Connect can announce the same events independently, so depending on which KDE Connect plugins you have enabled, you may see each SMS or call notified twice. (File transfers are only notified by Connected, so they never duplicate.)
 
