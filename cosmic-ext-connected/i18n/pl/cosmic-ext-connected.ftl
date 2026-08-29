@@ -1,7 +1,7 @@
 # Connected Applet - English translations
 
 # Application
-app-title = Połączono
+app-title = Connected
 
 # General UI
 loading = Ładowanie...
