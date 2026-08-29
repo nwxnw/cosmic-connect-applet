@@ -177,13 +177,12 @@ pairing-accepted = Parkoppling accepterad
 pairing-rejected = Parkoppling avvisad
 unpaired = Avparad från enhet
 
-# TODO English stubs, translation required
-# Daemon errors
-daemon-unreachable = Cannot connect to KDE Connect
-daemon-starting = KDE Connect is starting...
-daemon-not-started = KDE Connect could not be started
-daemon-not-found = KDE Connect was not found
-daemon-not-responding = KDE Connect is not responding
+# Daemon-fel
+daemon-unreachable = Kan inte ansluta till KDE Connect
+daemon-starting = KDE Connect startar...
+daemon-not-started = KDE Connect kunde inte startas
+daemon-not-found = KDE Connect hittades inte
+daemon-not-responding = KDE Connect svarar inte
 
 # Bilagor
 attachment = Bilaga
