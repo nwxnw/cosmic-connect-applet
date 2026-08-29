@@ -176,13 +176,12 @@ pairing-accepted = Parowanie zaakceptowane
 pairing-rejected = Parowanie odrzucone
 unpaired = Odparowano od urządzenia
 
-# TODO English stubs, translation required
 # Daemon errors
-daemon-unreachable = Cannot connect to KDE Connect
-daemon-starting = KDE Connect is starting...
-daemon-not-started = KDE Connect could not be started
-daemon-not-found = KDE Connect was not found
-daemon-not-responding = KDE Connect is not responding
+daemon-unreachable = Nie udało połączyć się z KDE Connect
+daemon-starting = KDE Connect uruchamia się...
+daemon-not-started = KDE Connect nie mogło zostać uruchomione
+daemon-not-found = KDE Connect nie znalezione
+daemon-not-responding = KDE Connect nie odpowiada
 
 # Attachments
 attachment = Załącznik
