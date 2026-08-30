@@ -34,14 +34,6 @@ build-release *args:
 run:
     cargo run -p {{name}}
 
-# Run in standalone window mode (for development)
-run-standalone:
-    cargo run -p {{name}} -- --standalone
-
-# Run standalone with debug logging
-run-debug:
-    RUST_LOG=cosmic_ext_connected=debug cargo run -p {{name}} -- --standalone
-
 # Install pre-built applet for current user (no sudo)
 # Usage: cargo build --release && just install
 install:
