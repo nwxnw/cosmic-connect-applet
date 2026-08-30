@@ -149,9 +149,22 @@ busctl --user call org.kde.kdeconnect \
 The daemon exposes `requestConversation` on two interfaces with **different behavior**:
 
 - **`org.kde.kdeconnect.device.sms`** (at `/devices/{id}/sms`): Sends a network packet to the phone. The response flows through `addMessages()` which populates the daemon's in-memory `m_conversations` cache. Use this to prime the cache.
-- **`org.kde.kdeconnect.device.conversations`** (at `/devices/{id}`): Creates a `RequestConversationWorker` that reads from a local persistent store and emits `conversationUpdated` D-Bus signals, but does **NOT** populate `m_conversations`.
+- **`org.kde.kdeconnect.device.conversations`** (at `/devices/{id}`): Creates a `RequestConversationWorker` that reads `m_conversations` and emits one `conversationUpdated` D-Bus signal per message it can already serve. The worker itself never writes to the cache; it only reads and emits.
 
 Thread loading fires both: SMS plugin first (cache priming for replies), then Conversations interface (per-message signals for UI). See `docs/SMS.md` → "Message Thread Loading".
+
+**There is no persistent store.** `m_conversations` is an in-memory `QMap` on the daemon, populated
+only by `addMessages()` from phone responses, and it dies with the daemon process. Nothing in
+`plugins/sms/` touches sqlite, `QSettings` or `KConfig`. A restarted daemon starts empty however
+long the phone has been paired, which is why a cold open cannot be served from cache and why
+`activeConversations()` returns nothing until the phone has answered at least once.
+
+The worker is not purely local either. If the cache cannot satisfy the request
+(`numHandled < howMany`), it calls `updateConversation()`, which asks the phone and **blocks**
+until `addMessages()` sees new messages, then re-reads and emits the rest. It also tops up
+pre-emptively when the remaining cache falls below `CACHE_LOW_WATER_MARK_PERCENT`. So a
+Conversations-interface read can turn into a phone round trip, and the cache does get populated -
+just by `addMessages()` on the response path, never by the worker.
 
 ### Pagination offsets: always request from 0
 
@@ -179,14 +192,14 @@ Upstream, `Device::isReachable()` is `!m_deviceLinks.isEmpty()` - a link *object
 `kdeconnectd` owns two well-known names, and only one of them can be auto-started:
 
 | Name | Where it comes from | Activatable |
-  |---|---|---|
+|---|---|---|
 | `org.kde.kdeconnect` | `/usr/share/dbus-1/services/org.kde.kdeconnect.service` | **Yes** |
 | `org.kde.kdeconnect.daemon` | runtime alias from KDBusService, derived from the daemon's `KAboutData` component name | No |
 
 `org.kde.kdeconnect.daemon` is **also the interface name** on `/modules/kdeconnect`, which is what makes the two easy to conflate. While the
 daemon is running both names reach the same object, so addressing the alias looks correct indefinitely. It diverges only when the daemon is
 **not** running: the bus starts it on demand for `org.kde.kdeconnect` and returns `org.freedesktop.DBus.Error.ServiceUnknown: The name is
-  not activatable` for the alias. Connected addressed the alias everywhere before v0.8.0 and so could never start the daemon on any distro -
+not activatable` for the alias. Connected addressed the alias everywhere before v0.8.0 and so could never start the daemon on any distro -
 invisible on Pop!_OS only because `/etc/xdg/autostart/` starts it at session login.
 
 **Destinations** - `default_service`, `SERVICE_NAME`, the `sender=` match rule - use `org.kde.kdeconnect`. **Interfaces** keep
@@ -196,8 +209,43 @@ never do this rename with a bare find-and-replace; `kdeconnect-dbus/src/lib.rs` 
 
 Unrelated despite the spelling: `~/.cache/kdeconnect.daemon/` is the daemon's Qt application name, not a bus name (`docs/SMS.md`).
 
-  ```bash
-  busctl --user call org.freedesktop.DBus /org/freedesktop/DBus \
-    org.freedesktop.DBus ListActivatableNames | tr ' ' '\n' | grep kdeconnect
-  # → "org.kde.kdeconnect" only, even with the daemon running
+```bash
+busctl --user call org.freedesktop.DBus /org/freedesktop/DBus \
+  org.freedesktop.DBus ListActivatableNames | tr ' ' '\n' | grep kdeconnect
+# → "org.kde.kdeconnect" only, even with the daemon running
+```
 
+
+### Owning the name is not exporting the objects
+
+Addressing the activatable name makes the bus start `kdeconnectd` on demand, which introduces a
+race the alias never could. The bus considers activation complete as soon as the process **owns
+`org.kde.kdeconnect`**, which happens before the daemon has exported `/modules/kdeconnect`. The
+first call after a cold start therefore comes back `UnknownObject` or `UnknownInterface` **on a
+healthy install** - it is a timing artifact, not a fault.
+
+`fetch_device_ids` (`device/fetch.rs`) absorbs this with the backoff schedule
+`ACTIVATION_RETRY_DELAYS_MS` (`constants.rs`), currently `[0, 150, 400, 1000]` - attempt once
+immediately, then three retries, ~1.55 s worst case before a genuine error reaches the UI.
+Recovery is normally sub-second, so this is far tighter than `RETRY_DELAY_SECS`, which is tuned
+for SMS page loads.
+
+**Only `Starting` is retried.** `classify()` maps the D-Bus error *name* to a `DaemonUnavailable`,
+and every other variant is permanent until something changes outside the applet:
+
+| Error name | Variant | Retried | Means |
+|---|---|---|---|
+| `UnknownObject`, `UnknownInterface` | `Starting` | Yes | Name owned, objects not exported yet |
+| `ServiceUnknown` | `NotInstalled` | No | No activation service file: KDE Connect is not installed |
+| `Spawn.*` | `FailedToStart` | No | Service file present, the bus could not exec it |
+| `NoReply`, `Timeout`, `TimedOut` | `NotResponding` | No | Name owned, no reply |
+| anything else, or a non-`MethodError` | `Other(String)` | No | Raw error shown to the user |
+
+Retrying a `NoReply` is actively harmful: it has already cost zbus's call timeout, so a second
+attempt doubles the wait before the user sees anything. The classification reads
+`zbus::Error::MethodError`; `zbus::fdo::Error` is the server-side type and never appears here.
+
+The connection mutex is acquired *inside* each attempt so the guard drops before the backoff
+sleep. Nineteen call sites share that `Arc<Mutex<Connection>>`, and holding it across a backoff
+would stall all of them during exactly the cold open where the user is most likely to click
+something.

@@ -65,3 +65,12 @@ the phone vanished, the kernel's retransmission budget governs instead (~15 minu
 
 ```bash
 ss -tnpi | grep 1716    # look for Send-Q > 0, backoff:N, a large lastrcv
+```
+
+`1716` is KDE Connect's TCP port. Read the three fields together - any one alone is ambiguous:
+
+- **`Send-Q` > 0** - bytes written to the socket that the peer has never acknowledged. On a healthy link this is 0 or drains within a second. A value that sits unchanged across successive `ss` runs is the strongest single signal that the phone is gone.
+- **`backoff:N`** - the kernel is in exponential retransmission backoff, doubling the interval per attempt. Present only while data is unacknowledged, so it confirms what `Send-Q` suggests. `N` climbing between runs means the socket is working through its retransmission budget, not recovering.
+- **`lastrcv`** - milliseconds since anything was received on the socket. Large and growing while `Send-Q` is non-zero is the half-open case. Large with `Send-Q` at 0 is just an idle link, which is normal.
+
+The socket stays `ESTABLISHED` throughout, which is why the daemon keeps reporting the device as reachable and why there is nothing for Connected to key on.

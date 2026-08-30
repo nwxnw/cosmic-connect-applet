@@ -8,17 +8,22 @@ The applet tracks current view:
 
 ```rust
 pub enum ViewMode {
-    DeviceList,           // Main device list
-    DevicePage,           // Individual device details
-    SendTo,               // "Send to device" submenu
-    ConversationList,     // SMS conversations
-    MessageThread,        // SMS message thread
-    NewMessage,           // Compose new SMS
-    Settings,             // Settings panel
-    NotificationSettings, // Notification settings sub-page
-    MediaControls,        // Media player controls
+    DeviceList,       // Main device list
+    DevicePage,       // Individual device details
+    SendTo,           // "Send to device" submenu - mobile peers
+    ShareText,        // Focused Share Text compose - non-mobile peers
+    ConversationList, // SMS conversations
+    MessageThread,    // SMS message thread
+    NewMessage,       // Compose new SMS
+    Settings,         // Settings panel
+    About,            // About sub-page
+    MediaControls,    // Media player controls
 }
 ```
+
+`SendTo` and `ShareText` are the two arms of the peer-class split: a mobile peer gets the full
+submenu, a non-mobile peer gets the single compose view. The predicate is
+`DeviceClass::is_mobile` (`device/class.rs`).
 
 ## Async Tasks
 
@@ -89,6 +94,7 @@ sized to the applet button, which is correct for a single-button applet. Passing
 bounds instead requires `.on_press_with_rectangle()` on the panel button and a `Message::Surface`
 variant that the view can emit — see `cosmic-ext-whether`. Only worth it if placement is actually
 wrong; it changes positioning, so re-test both panel orientations if adopted.
+
 ## View Lifetimes
 
 Use explicit lifetime annotations:
@@ -162,13 +168,52 @@ widget::button::custom(
 ## Device Page Layout
 
 1. **Header** - Back button, device icon, name, type, status, battery
-2. **Actions** (list items):
-   - SMS Messages → ConversationList (chevron)
-   - Send to [device] → SendTo (chevron)
-   - Media Controls → MediaControls (chevron)
-   - Find Phone → rings device (no chevron)
-3. **Pairing section** - Pair/unpair buttons
-4. **Notifications section** - Device notifications list
+2. **Actions** (list items) - the set depends on peer class and reachability:
+   - *Mobile peer:* SMS Messages → ConversationList (chevron), Send to [device] → SendTo
+     (chevron), Media Controls → MediaControls (chevron), Find Phone → rings device (no chevron)
+   - *Non-mobile peer:* Share file, Share clipboard, Send Ping, Share Text → ShareText, Media
+     Controls → MediaControls (chevron)
+   - *Offline:* the action list is replaced by the `device-offline-actions-unavailable` caption
+3. **Pairing section** - Pair/unpair buttons; an offline paired device shows the
+   `unpair-offline-note` caption alongside Unpair
+4. **Notifications section** - Device notifications list (`build_notifications_section`), hidden
+   entirely when the device reports none
+
+## Daemon-unavailable surface
+
+`view_window` checks `self.error` **first**, before loading, the device list and the empty-list
+card. While it is `Some`, nothing else renders.
+
+```rust
+pub enum ErrorState {
+    SessionBus(String),      // the session bus itself is unreachable
+    Daemon(DaemonUnavailable), // bus is fine, the daemon could not be reached
+}
+```
+
+Each variant maps to one heading, with a caption only where there is a raw error worth showing:
+`daemon-unreachable` (+ raw), `daemon-starting`, `daemon-not-started`, `daemon-not-found`,
+`daemon-not-responding`, and `error` (+ raw) for `Other`. The variants themselves and what
+produces each are in `docs/DBUS.md` → "Owning the name is not exporting the objects".
+
+**One field, two writers, two clearers - and they are not symmetric.** `self.error` is written by
+exactly `DbusConnectionFailed` and `DeviceFetchFailed`, and cleared by exactly `DbusConnected` and
+`DevicesUpdated`. `RetryConnection` sets `self.loading = true` and re-fires the fetch but
+**deliberately does not clear the error**, so the card stays up until something actually succeeds
+rather than blinking away on a click that is about to fail again. Adding a third writer or a
+convenience clear re-introduces the failure mode this shape exists to prevent.
+
+**Subscription setup failures must not reach this surface.** A subscription that fails to build
+its connection or proxy emits `Message::SubscriptionRetrying`, which only logs; it re-enters
+`Init` and tries again on its own. Routing those through `Message::Error` blanked the device list
+on a transient failure the subscription was already recovering from. `DeviceFetchFailed` is the
+only path that should raise the card, because it is the only one that says something about device
+state.
+
+**The retry affordance appears on two cards.** The error card and the empty-device-list card both
+carry a `retry` button dispatching `Message::RetryConnection`. On the error card the button swaps
+to a non-pressable `process-working-symbolic` variant while `self.loading` is set, so a retry in
+flight cannot be re-fired.
 
 ## fl!() Macro Lifetime Handling
 

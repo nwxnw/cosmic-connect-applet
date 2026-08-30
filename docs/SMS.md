@@ -20,6 +20,30 @@ device prefetches conversation heads with `activeConversations()` so the SMS vie
 
 ## Architecture Overview
 
+### Where the daemon's data actually lives
+
+`m_conversations` is an in-memory `QMap` on the daemon and **nothing else**. It is populated only
+by `addMessages()` on the phone-response path, and it dies with the daemon process. There is no
+persistent store anywhere in KDE Connect's SMS plugin - no sqlite, no `QSettings`, no `KConfig`.
+
+Three consequences the rest of this document depends on:
+
+- **A restarted daemon starts empty**, however long the phone has been paired. "Cold cache" is not
+  an edge case; it is every first SMS open after a daemon restart or a login.
+- **`activeConversations()` is a pure local read** of that map (newest message per thread). It
+  sends nothing to the phone, so it cannot warm a cold cache - it can only report one. The only
+  call that warms it is the SMS plugin's `requestAllConversations()`, which sends
+  `PACKET_TYPE_SMS_REQUEST_CONVERSATIONS`.
+- **`conversationLoaded` is not a "finished reading storage" event.** It is emitted only from
+  `addMessages()`, so it means "the phone delivered a batch", and its count is
+  `m_known_messages[id].size()` - distinct UIDs held in memory right now.
+
+The applet's `ConversationStoreLoaded` message and the "store" wording in
+`MESSAGE_SUBSCRIPTION_TIMEOUT_SECS`'s comment predate this being understood. They refer to the
+daemon's in-memory cache, not to any persistent storage. Renaming them is cosmetic and has not
+been done; do not read the names as evidence of a store that exists.
+
+
 ### Conversation List Loading
 
 Conversation-list loading is cache-first and long-lived:
@@ -46,16 +70,16 @@ Thread loading uses a long-lived subscription with distinct startup phases:
 3. Two `requestConversation()` calls are made:
    - SMS plugin request for daemon cache priming
    - Conversations request for per-message UI signals
-4. The local persistent-store phase ends at `conversationLoaded`.
-5. A phone-response window stays open after local-store completion to catch delayed phone data.
+4. The cached-read phase ends at `conversationLoaded`.
+5. A phone-response window stays open after that to catch delayed phone data.
 6. The subscription then continues listening for new incoming messages and sent-message echoes until the thread closes.
 
 Important details:
 
 - The list is rendered oldest-first, so an unscrolled scrollable lands on the oldest message. Auto-scroll-to-bottom is dispatched on `ConversationStoreLoaded`, on `ConversationLoadComplete`, on each `ConversationMessageReceived` while `!initial_load_complete`, and on confirmed sent-message echoes. The per-message dispatch covers cached-store hits where the daemon's worker satisfies the request entirely from `m_conversations` and never emits `conversationLoaded` (see `requestconversationworker.cpp`'s `numHandled >= howMany` branch), which would otherwise leave the user pinned at the top of a long thread.
 - `initial_load_complete` gates scroll-based loading of older messages, and bounds the per-message auto-scroll so a new incoming SMS arriving while the user is reading older content doesn't yank them down.
-- The daemon writes phone-supplied messages to the local store asynchronously, so the first-open Conversations worker may finish before that data lands. The daemon's `addMessages()` only emits `conversationUpdated` for the latest message in a thread, so historical backfill from the phone arrives silently — observable only via a second `conversationLoaded(count)` emission with a higher count than we've received. Recovery is bounded to one re-issued `requestConversation` per thread open, with two triggers:
-  - **Primary** (Option 1): a duplicate `conversationLoaded` arrives with `store_count > received_message_count` while we're still under-filled (`received < messages_per_page`). The retry fires immediately. Catches both the original "received only 1 of N" truncation and the off-by-one "received N-1 of N" case where the daemon's worker emits one fewer per-message signal than its store reports. The page-size guard avoids firing on natural scroll-pagination boundaries.
+- The daemon merges phone-supplied messages into `m_conversations` asynchronously, so the first-open Conversations worker may finish before that data lands. The daemon's `addMessages()` only emits `conversationUpdated` for the latest message in a thread, so historical backfill from the phone arrives silently — observable only via a second `conversationLoaded(count)` emission with a higher count than we've received. Recovery is bounded to one re-issued `requestConversation` per thread open, with two triggers:
+  - **Primary** (Option 1): a duplicate `conversationLoaded` arrives with `store_count > received_message_count` while we're still under-filled (`received < messages_per_page`). The retry fires immediately. Catches both the original "received only 1 of N" truncation and the off-by-one "received N-1 of N" case where the daemon's worker emits one fewer per-message signal than its cache holds. The page-size guard avoids firing on natural scroll-pagination boundaries.
   - **Fallback**: `phone_deadline` expires with `received <= 1` — used if the daemon doesn't re-emit `conversationLoaded` (e.g. the phone added no new UIDs, or a signal-ordering race). Narrow gate kept here on purpose: if no duplicate fired, retry against an unchanged store would just re-deliver what we already have.
 - The retry re-reads the Conversations interface as `requestConversation(threadId, 0, received + page)`. **The offset is deliberately pinned to 0 and only the range end moves.** The daemon serves newest-first, so widening the range returns the same messages, and `crbegin() + 0` can never index past the end of its cache. A non-zero `start` against a cache holding fewer messages **segfaults kdeconnectd 23.08.5** (no bounds check between the D-Bus wire and the iterator in `requestconversationworker.cpp`) and silently returns nothing on newer daemons - so an out-of-range offset is an applet-side correctness bug against every daemon version, and the daemon does not restart itself. Clamping `start` against the last known store count is **not** an alternative: every count the applet holds is stale in exactly the crash scenario (a restarted daemon with a cold cache) and it cannot detect that, so the clamp is circular. The resulting per-message signals merge via `known_message_ids` dedup.
 
@@ -186,7 +210,7 @@ The KDE Connect daemon sets its Qt application name to `"kdeconnect.daemon"` in 
 
 ## Known Constraints
 
-- `conversationLoaded` reports the local persistent-store count, not the phone's authoritative total.
+- `conversationLoaded` reports `m_known_messages[id].size()` - the count of distinct message UIDs the daemon currently holds **in memory** for that thread - not the phone's authoritative total. It is emitted only from `addMessages()`, so it fires only when the phone has delivered a batch, never on a purely cached read.
 - Reply sending still depends on daemon cache priming before `replyToConversation` can work reliably.
 - Notification correctness depends on careful `last_seen_sms` handling when opening threads and merging incoming data.
 - **A send has no terminal state.** `Ok` from `replyToConversation` / `sendWithoutConversation`
@@ -204,7 +228,7 @@ Messages (see `app.rs`):
 - `ConversationReceived` — cached or newly discovered conversation summary
 - `ConversationSyncStarted` / `ConversationSyncComplete` — spinner lifecycle for the list
 - `ConversationMessageReceived` — individual message during thread load or live updates
-- `ConversationStoreLoaded` — local persistent-store phase finished (triggers initial scroll)
+- `ConversationStoreLoaded` — the daemon's cached read finished (triggers initial scroll). The `Store` in the name is historical and does not mean a persistent store; see "Where the daemon's data actually lives"
 - `ConversationLoadComplete` — phone-response window elapsed (sets `initial_load_complete`)
 
 Timeout constants (see `constants.rs`):
@@ -215,7 +239,7 @@ Timeout constants (see `constants.rs`):
 - `CONVERSATION_LIST_RETRY_THRESHOLD` / `CONVERSATION_LIST_RETRY_WAIT_MS` — cold-start retry gate and window
 - `PHONE_RESPONSE_TIMEOUT_MS` — thread phone-response window after `conversationLoaded`
 - `CONVERSATION_RETRY_WAIT_MS` — settle window for the one-shot Conversations-interface re-read fired when first-open truncation is suspected
-- `MESSAGE_SUBSCRIPTION_TIMEOUT_SECS` — Phase 1 local-store safety-net timeout
+- `MESSAGE_SUBSCRIPTION_TIMEOUT_SECS` — Phase 1 cached-read safety-net timeout
 - `NEW_MESSAGE_SYNC_INDICATOR_SECS` — post-send window the conversation-list sync indicator stays up while waiting for the phone to report the new conversation
 
 D-Bus surface:

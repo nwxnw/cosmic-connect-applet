@@ -165,8 +165,9 @@ Connected notifies for those.)
 - **SMS** — KDE Connect's **"Receive notifications"** plugin
   (`kdeconnect_notifications`) mirrors the phone's own notifications to the
   desktop, including incoming SMS. Connected's SMS toast is generated
-  independently (`sms/store.rs:1237`) from the `conversationUpdated` signal, so
-  both fire for one message.
+  independently from the `conversationUpdated` signal, in the
+  `Message::SmsNotificationReceived` arm of `SmsConversationStore::update`
+  (`sms/store.rs`), so both fire for one message.
 - **Calls** — The duplicate is KDE Connect's **telephony** plugin. Connected
   reads call events from that same plugin's `callReceived` signal, so the source
   Connected would need to silence is the source it depends on.
@@ -178,10 +179,11 @@ cost because that plugin's data feeds Connected's UI:
 
 - The "Receive notifications" plugin's `activeNotifications()`
   (`kdeconnect-dbus/src/plugins/notifications.rs`, called from
-  `device/fetch.rs:172`) is the **sole** source of `device.notifications`.
-- That field drives the device-page notification list
-  (`device_page.rs:446-461`) and the unread count badges on both the device list
-  (`device_list.rs:232`) and the device page (`device_page.rs:452`).
+  `fetch_notifications` in `device/fetch.rs`) is the **sole** source of
+  `device.notifications`.
+- That field drives the device-page notification list and its badge
+  (`build_notifications_section` in `device_page.rs`) and the unread count badge
+  on the device list (`device_row` in `device_list.rs`).
 
 So disabling the plugin to stop the duplicate SMS toast also **empties the
 device-page notification list and both badges** — all-or-nothing. Disabling the
