@@ -1,21 +1,21 @@
 # Changelog
 
-## [0.8.0] - Unreleased
-
+## [0.8.0] - 2026-08-30
+Connected's popup now blurs like the rest of COSMIC, and it starts KDE Connect for you instead of failing with a cryptic error, so first run works the same on Fedora, Arch and Debian as it does on Pop!_OS.
 ### Added
-- A Retry button on the error and empty-device-list cards, so a failed start can be retried without restarting the panel.
+- A Retry button when Connected can't reach KDE Connect or finds no devices, so you can try again without restarting the panel.
 
 ### Changed
 - Connected now starts KDE Connect for you. If the daemon isn't running when the applet opens, the session bus launches it on demand instead of the applet showing an error.
 - The daemon error card now says what actually went wrong - KDE Connect not installed, still starting, failed to start, or not responding - instead of one generic message, and those messages are translated.
 - Updated COSMIC dependencies and refreshed the dependency tree, clearing three security advisories.
-- Swedish, Czech and Polish translations updated. Polish is new this cycle.
+- Swedish and Czech translations updated. Polish is new this release.
 
 ### Fixed
 - The popup renders with the proper compositor blur instead of a flat translucent panel.
 - A brief hiccup while KDE Connect is starting no longer flashes an error card. Connected waits out the startup window and only reports a problem if the daemon really doesn't come up.
 - A subscription that fails to start no longer blanks the device list; it retries quietly in the background.
-- Fedora and other non-Debian installs: the README now names the correct KDE Connect package and covers the firewall rules the phone connection needs.
+- Setup and troubleshooting now cover Fedora and Arch: the right package name, the firewall ports KDE Connect needs, and what to check when the daemon won't start.
 
 ## [0.7.0] - 2026-08-04
 ### Added

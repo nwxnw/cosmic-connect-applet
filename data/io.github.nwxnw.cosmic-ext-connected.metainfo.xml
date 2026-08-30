@@ -89,6 +89,26 @@
   </screenshots>
   <content_rating type="oars-1.1" />
   <releases>
+    <release version="0.8.0" date="2026-08-30">
+      <description>
+        <p>Connected's popup now blurs like the rest of COSMIC, and it starts KDE Connect for you instead of failing with a cryptic error, so first run works the same on Fedora, Arch and Debian as it does on Pop!_OS.</p>
+        <p>Added</p>
+        <ul>
+          <li>A Retry button when Connected can't reach KDE Connect or finds no devices, so you can try again without restarting the panel.</li>
+        </ul>
+        <p>Changed</p>
+        <ul>
+          <li>Connected now starts KDE Connect for you. If the daemon isn't running when the applet opens, the session bus launches it on demand instead of the applet showing an error.</li>
+          <li>The daemon error card now says what actually went wrong - KDE Connect not installed, still starting, failed to start, or not responding - instead of one generic message.</li>
+          <li>Swedish and Czech translations updated. Polish is new this release.</li>
+        </ul>
+        <p>Fixed</p>
+        <ul>
+          <li>The popup renders with the proper compositor blur instead of a flat translucent panel.</li>
+          <li>Setup and troubleshooting now cover Fedora and Arch: the right package name, the firewall ports KDE Connect needs, and what to check when the daemon won't start.</li>
+        </ul>
+      </description>
+    </release>
     <release version="0.7.0" date="2026-08-04">
       <description>
         <p>Added</p>
