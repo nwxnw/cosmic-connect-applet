@@ -218,6 +218,7 @@ The KDE Connect daemon sets its Qt application name to `"kdeconnect.daemon"` in 
   evidence of delivery is the phone's echo, so an unconfirmed send stays an optimistic bubble with
   no failed state. Its conversation-list preview is stamped with local `SystemTime::now()` and the
   list sorts on that, so until the echo arrives it outranks real phone timestamps.
+- **A pre-`26.08.0` daemon silently discards a reply when the thread is not in its cache.** Upstream BUG 517659, fixed in `3bf16922` and first shipped in `v26.08.0`: `replyToConversation()` logged a warning and dropped the message outright when `m_conversations` did not hold the target thread, which is the state after a device reconnect, or before the list has loaded for the session. **This is the daemon's behaviour, not applet logic** - the cache-priming and cold-start constraints above describe what Connected does about it, not a defect Connected can repair. Connected cannot even detect it: the method returns void (see "A send has no terminal state" above), so the optimistic bubble stands for a message that was never sent. Measured 2026-08-28 by calling `replyToConversation` directly with a thread ID that does not exist: `23.08.5` logs `Got a conversationID for a conversation with no messages!` and returns, while `26.08.0` logs `not in cache, requesting from phone` and fetches. Pop's `23.08.5` and Fedora's `26.04.3` lack the fix; Arch's `26.08.0` has it.
 
 ## Reference
 
