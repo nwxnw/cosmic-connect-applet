@@ -11,6 +11,7 @@
 
   <summary>Phone connectivity applet for the COSMIC desktop</summary>
   <summary xml:lang="cs">Applet k propojení telefonu v prostředí COSMIC</summary>
+  <summary xml:lang="cs">Applet do łączenia z telefonem dla środowiska COSMIC</summary>
   <summary xml:lang="sv">Applet för telefonanslutning i skrivbordsmiljön COSMIC</summary>
 
   <description>
@@ -18,33 +19,44 @@
     phone-to-desktop connectivity using KDE Connect as a backend.</p>
     <p xml:lang="cs">Connected je applet panelu pro prostředí COSMIC, který poskytuje
     propojení telefonu s počítačem pomocí KDE Connect jako backendu.</p>
+    <p xml:lang="pl">Connected jest apletem dla środowiska graficznego COSMIC, który zapewnia połączenie między telefonem a komputerem używając KDE Connect jako backendu.</p>
     <p>Connected requires KDE Connect to be installed on your computer, and the KDE Connect companion app on your phone.</p>
     <p xml:lang="cs">Connected vyžaduje nainstalovaný KDE Connect na počítači a mobilní aplikaci KDE Connect ve vašem telefonu.</p>
+    <p xml:lang="pl">Connected wymaga zainstalowania na komputerze KDE Connect, oraz aplikacji KDE Connect na telefonie.</p>
 
     <p>Features include:</p>
     <p xml:lang="cs">Funkce zahrnují:</p>
+    <p xml:lang="cs">Funkcjonalności zawierają:</p>
 
     <ul>
       <li>Device battery status and connectivity monitoring</li>
       <li xml:lang="cs">Sledování stavu baterie zařízení a stavu připojení</li>
+      <li xml:lang="pl">Śledzenie stanu baterii i monitorowanie połączenia</li>
+
 
       <li>SMS messaging with conversation threads</li>
       <li xml:lang="cs">SMS zprávy s vlákny konverzací</li>
+      <li xml:lang="pl">SMSy z widokiem wątków</li>
 
       <li>Smart SMS threading that merges conversations iOS reactions split into multiple threads on Android</li>
       <li xml:lang="cs">Chytré SMS vlákno, které slučuje konverzace a reakce z iOS rozdělené do více vláken na Androidu</li>
+      <li xml:lang="pl">Sprytne wątki SMSowe, które łączą rozmowy. Reakcje iOS podzielone w odzielne wątki na Androidzie</li>
 
       <li>Media player remote control</li>
       <li xml:lang="cs">Dálkové ovládání přehrávače médií</li>
+      <li xml:lang="pl">Zdalne kontrolowanie odtwarzaniem multimediami</li>
 
       <li>Desktop notifications for calls, messages, and file transfers</li>
       <li xml:lang="cs">Oznámení na ploše pro hovory, zprávy a přenosy souborů</li>
+      <li xml:lang="pl">Powiadomienia na komputer dla połączeń, wiadomości i przesyłu plików</li>
 
       <li>Ping your phone to find it</li>
       <li xml:lang="cs">Pingnutí telefonu pro jeho nalezení</li>
+      <li xml:lang="pl">Pinganie swojego telefonu, by go znaleźć</li>
 
       <li>File sharing between devices</li>
       <li xml:lang="cs">Sdílení souborů mezi zařízeními</li>
+      <li xml:lang="pl">Współdzielenie plików między urządzeniami</li>
     </ul>
   </description>
 
@@ -79,12 +91,17 @@
     <keyword xml:lang="cs">mobil</keyword>
     <keyword xml:lang="cs">notifikace</keyword>
     <keyword xml:lang="cs">oznámení</keyword>
+    <keyword xml:lang="pl">telefon</keyword>
+    <keyword xml:lang="pl">komórka</keyword>
+    <keyword xml:lang="pl">powiadomienia</keyword>
+    <keyword xml:lang="pl">wiadomości</keyword>
   </keywords>
   <screenshots>
     <screenshot type="default">
       <image>https://raw.githubusercontent.com/nwxnw/cosmic-ext-connected/main/screenshots/connected-applet.png</image>
       <caption>Connected applet showing device page</caption>
       <caption xml:lang="cs">Applet Connected zobrazující stránku se zařízeními</caption>
+      <caption xml:lang="pl">Aplet Connected pokazuje stronę z urządzeniami</caption>
     </screenshot>
   </screenshots>
   <content_rating type="oars-1.1" />

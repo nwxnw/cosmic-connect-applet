@@ -22,8 +22,8 @@ loading-devices = Ładowanie urządzeń...
 paired = Sparowane
 not-paired = Nie sprawone
 connected = Połączone
-online = Online
-offline = Offline
+online = W sieci
+offline = Poza siecią
 available = Dostępne
 discovered = Wykryte
 battery = Bateria
@@ -33,7 +33,7 @@ charging = ładowanie
 pairing-request = Prośba o sparowanie
 pairing = Parowanie...
 connected-paired = Połączono i sparowano
-paired-offline = Sparowano (offline)
+paired-offline = Sparowano (poza siecią)
 visible-not-paired = Widoczne ale nie sparowane
 pairing-requested-by-device = Prośba o sparowanie od urządzenia
 pairing-request-sent = Wysłano prośbę o sparowanie...
@@ -54,7 +54,7 @@ media = Media
 media-controls = Sterowanie mediami
 notifications = Powiadomienia
 device-must-be-connected = Urządzenie musi być połączone aby używać akcji
-device-offline-actions-unavailable = Inne akcje potrzebują aby to urządzenie było online.
+device-offline-actions-unavailable = Inne akcje potrzebują aby to urządzenie było w sieci.
 send-to = Wyślij do { $device }
 send-to-title = Wyślij do { $device }
 share-text-with-title = Udostępnij tekst do { $device }
@@ -66,7 +66,7 @@ find-phone-failed = Nie udało się zadzwonić telefonem
 # Pairing
 pair = Sparuj
 unpair = Odparuj
-unpair-offline-note = To urządzenie jest offline. Odparowanie przynosi efekt teraz po twojej stronie; drugie urządzenie skończ odparowywanie pzy następnym połączeniu.
+unpair-offline-note = To urządzenie jest poza siecią. Odparowanie zadziałało z twojej strony; drugie urządzenie odparuje się, kiedy połączy się ponownie.
 accept = Akceptuj
 reject = Odrzuć
 cancel = Anuluj
@@ -75,7 +75,7 @@ pair-request-sent = Wysłano prośbę o sparowanie
 device-wants-to-pair = To urządznie chce się z tobą sparować
 waiting-for-device = Oczekiwanie na zakceptowanie przez urządzenie...
 device-not-paired = Urządzenie nie jest sparowane
-device-offline = Urządzenie jest offline
+device-offline = Urządzenie jest poza siecią
 
 # Device type captions (shown under device name on device page)
 device-type-phone = Telefon
@@ -148,7 +148,7 @@ sending = Wysyłanie...
 # Media controls
 loading-media = Ładowanie informacji o mediach...
 no-media-players = Brak aktywnych odtwarzaczy mediów
-start-playing = Zacznij odtwarzać muzykę na twoim telefonie
+start-playing = Zacznij odtwarzać muzykę na swoim telefonie
 media-not-available = Sterowanie mediami niedostępne
 enable-mpris = Upewnij się że plugin MPRIS jest włączony
 player = Odtwarzacz:
@@ -165,7 +165,7 @@ no-notifications = Brak powiadomień
 
 # Errors and status
 ping-sent = Wysłano ping!
-ping-failed = Nie udało się wysłać pingu
+ping-failed = Nie udało się wysłać pinga
 share-complete = Udostępnianie ukończone
 share-failed = Nie udało się udostępnić
 clipboard-sent = Wysłano schowek!
@@ -193,7 +193,7 @@ merge-toggle-on-tooltip = Odpowiedzi reakcjami są zgrupowane w ich rozmowie. Kl
 merge-toggle-off-tooltip = Wątki odpowiedzi reakcjami są pokazywane oddzielnie - odpowiedzi mogą być zduplikowane. Kliknij aby je pogrupować.
 
 # About page
-about = O aplecie
-about-summary = Połączenie telefonu do komputera dla COSMIC
+about = O Aplecie
+about-summary = Połączenie telefonu z komputerem dla środowiska COSMIC
 about-homepage = Strona domowa
 about-issues = Zgłoś problem
