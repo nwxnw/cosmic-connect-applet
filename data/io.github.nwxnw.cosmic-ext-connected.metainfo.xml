@@ -11,7 +11,7 @@
 
   <summary>Phone connectivity applet for the COSMIC desktop</summary>
   <summary xml:lang="cs">Applet k propojení telefonu v prostředí COSMIC</summary>
-  <summary xml:lang="cs">Applet do łączenia z telefonem dla środowiska COSMIC</summary>
+  <summary xml:lang="pl">Applet do łączenia z telefonem dla środowiska COSMIC</summary>
   <summary xml:lang="sv">Applet för telefonanslutning i skrivbordsmiljön COSMIC</summary>
 
   <description>
@@ -26,7 +26,7 @@
 
     <p>Features include:</p>
     <p xml:lang="cs">Funkce zahrnují:</p>
-    <p xml:lang="cs">Funkcjonalności zawierają:</p>
+    <p xml:lang="pl">Funkcjonalności zawierają:</p>
 
     <ul>
       <li>Device battery status and connectivity monitoring</li>
